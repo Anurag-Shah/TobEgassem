@@ -1,0 +1,42 @@
+[tool.poetry]
+name = "tob"
+version = "1.0.0"
+description = "Tob is a discord bot that reverses 1/69 messages."
+license = "MIT"
+authors = ["Anurag Shah <my@email.com>", "DaniPopes <danipopes1@protonmail.com>"]
+readme = "README.md"
+homepage = "https://github.com/Anurag-Shah/TobEgassem"
+repository = "https://github.com/Anurag-Shah/TobEgassem"
+keywords = ["discord", "bot"]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+colorama = "^0.4.5"
+discord = ">=2.0.0"
+python-dotenv = "^0.21.0"
+tweepy = "^4.10.1"
+
+[tool.black]
+line-length = 100
+target-version = ["py310"]
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | _build
+  | buck-out
+  | build
+  | dist
+  | env
+  | venv
+)/
+'''
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
