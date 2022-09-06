@@ -161,18 +161,14 @@ class Tob(discord.Client):
                 )
 
             # Replies with bif bfrunbgussss!!!!
-            elif (
-                text_lower
-                in (
-                    "bif",
-                    "bruhngus",
-                    "bif bruhngus",
-                    "big bruhngus",
-                    "bfrunbgussss",
-                    "bif bfrunbgussss",
-                    "bif bfrunbgussss!!!!",
-                )
-                or "<:bif_bfrunbgussss" in text_lower
+            elif text_lower in (
+                "bif",
+                "bruhngus",
+                "bif bruhngus",
+                "big bruhngus",
+                "bfrunbgussss",
+                "bif bfrunbgussss",
+                "bif bfrunbgussss!!!!",
             ):
                 log.debug("bif bfrunbgussss!!!!", "on_message::bif")
                 await msg.reply(
