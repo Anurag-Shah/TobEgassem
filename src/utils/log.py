@@ -3,7 +3,7 @@ from typing import Any
 from colorama import Fore
 from datetime import datetime
 
-from utils import *
+from .utils import to_bool
 
 _DATE_FORMAT: str = "%Y-%m-%dT%H:%M:%S.%fZ"
 

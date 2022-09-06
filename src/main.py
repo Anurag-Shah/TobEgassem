@@ -4,7 +4,7 @@
 from dotenv import load_dotenv
 
 from tob import Tob
-from utils import env, env_opt
+from utils.utils import env, env_opt
 
 
 def main():

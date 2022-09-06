@@ -9,8 +9,8 @@ from typing import TypedDict
 from datetime import datetime
 import discord
 
-from log import log
-from utils import *
+from utils.log import log
+from utils.utils import *
 
 # ------------------------------------------------------------------------------------------------ #
 #                                          TobEgassem v3.0                                         #
