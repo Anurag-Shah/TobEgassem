@@ -73,21 +73,30 @@ class Tob(discord.Client):
     data: Any = INIT_DATA
     failed_loading_data: bool = False
 
-    def __init__(self, **kwargs) -> None:
+    def __init__(self,
+            twitter_tokens: str,
+            log_level: int = 1,
+            log_color: bool = False,
+            probability: int = 69,
+            twitter_replacement: str = "vxtwitter.com",
+            test: bool = False,
+            reply_to_invalid_command: bool = False,
+            clear_cache: bool = False,
+    ) -> None:
         intents = discord.Intents().default()
         intents.message_content = True
         super().__init__(intents=intents)
 
         self.start_time = timer()
         # Verified during on_ready
-        self.twitter_tokens = str(kwargs.pop("twitter_tokens"))
-        log.set_log_level(int(kwargs.pop("log_level", 1)))
-        log.set_use_ansi_colors(to_bool(kwargs.pop("log_color", False)))
-        self.probability = int(kwargs.pop("probability", 69))
-        self.twitter_replacement = str(kwargs.pop("twitter_replacement", "vxtwitter.com"))
-        self.test = to_bool(kwargs.pop("test", False))
-        self.reply_to_invalid_command = to_bool(kwargs.pop("reply_to_invalid_command", False))
-        self.clear_cache = to_bool(kwargs.pop("clear_cache", False))
+        self.twitter_tokens = twitter_tokens
+        log.set_log_level(log_level)
+        log.set_use_ansi_colors(log_color)
+        self.probability = probability
+        self.twitter_replacement = twitter_replacement
+        self.test = test
+        self.reply_to_invalid_command = reply_to_invalid_command
+        self.clear_cache = clear_cache
 
         # Register event handlers
         self.event(self.on_ready)
