@@ -19,6 +19,16 @@ def env_opt(s: str, default: str|None = None) -> Any:
     return _s if _s else default
 
 
+def env_arg(args: dict, env: str, name: str, default: Any|None = None):
+    s = os.getenv(env)
+    if s is not None:
+        args[name] = s
+    elif default is not None:
+        args[name] = default
+    else:
+        raise EnvironmentError(f"Missing '{env}' environment variable")
+
+
 def to_bool(v: Any) -> bool:
     if isinstance(v, str):
         return v.lower() in ("y", "yes", "t", "true", "1")
