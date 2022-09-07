@@ -33,12 +33,10 @@ INIT_DATA = {
 # ------------------------------------------- Patterns ------------------------------------------- #
 
 # https://regexr.com/6r22i
-TOB_PATTERN = r"(?:^|\W)tob(?:$|\W)"
-TOB_FLAGS: re.RegexFlag = re.I | re.M
+TOB_REGEX = re.compile(r"(?:^|\W)tob(?:$|\W)", re.I | re.M)
 
 # https://regexr.com/6r26d
-URL_PATTERN = r"[(\<)?(http(s)?):\/\/(www\.)?a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,6}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*(\>)?)"
-URL_FLAGS: re.RegexFlag = re.I | re.M
+URL_REGEX = re.compile(r"[(\<)?(http(s)?):\/\/(www\.)?a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,6}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*(\>)?)", re.I | re.M)
 
 # ---------------------------------------------- Tob --------------------------------------------- #
 
@@ -184,7 +182,7 @@ class Tob(discord.Client):
                     await msg.channel.send(fullreverse(text))
 
             # Reacts with specific text to certain keywords
-            if len(re.findall(TOB_PATTERN, text, TOB_FLAGS)) > 0:
+            if len(re.findall(TOB_REGEX, text)) > 0:
                 log.debug(f'React "Tob": {format_msg_full(msg)}', "on_message::react")
                 await msg.add_reaction("❤")
             if text_lower == "like":
@@ -388,7 +386,7 @@ class Tob(discord.Client):
         log.debug(f"Replace: {format_msg_full(msg)}", "on_message::url")
         urls_replaced: list[str] = []
         _text = " ".join(text.split("\n"))
-        iter = re.finditer(URL_PATTERN, _text, URL_FLAGS)
+        iter = re.finditer(URL_REGEX, _text)
         for match in iter:
             url = match.group()
 
