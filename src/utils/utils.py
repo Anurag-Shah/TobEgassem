@@ -95,8 +95,8 @@ def get_seed(data: Any) -> float:
     return seed
 
 
-def _underscore(s: Any) -> str:
-    return "_".join(str(s).split(" "))
+# def _underscore(s: Any) -> str:
+#     return "_".join(str(s).split(" "))
 
 
 def ends_with(s: str, l: list[str]) -> bool:
