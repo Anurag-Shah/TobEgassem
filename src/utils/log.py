@@ -59,24 +59,24 @@ class Logger:
 
     # ------------------------------------------- Logs ------------------------------------------- #
 
-    def log(self, level: LogLevel, log: str, trace: str = "") -> None:
+    def log(self, level: LogLevel, log: Any, trace: str = "") -> None:
         if self.log_level >= level.level:
             _level_str = level.display() if self.use_ansi_colors else level.name
             print(self._time(), _level_str, self._trace(trace), log)
 
-    def error(self, log: str, trace: str = "") -> None:
+    def error(self, log: Any, trace: str = "") -> None:
         self.log(_ERROR, log, trace)
 
-    def warn(self, log: str, trace: str = "") -> None:
+    def warn(self, log: Any, trace: str = "") -> None:
         self.log(_WARN, log, trace)
 
-    def info(self, log: str, trace: str = "") -> None:
+    def info(self, log: Any, trace: str = "") -> None:
         self.log(_INFO, log, trace)
 
-    def debug(self, log: str, trace: str = "") -> None:
+    def debug(self, log: Any, trace: str = "") -> None:
         self.log(_DEBUG, log, trace)
 
-    def trace(self, log: str, trace: str = "") -> None:
+    def trace(self, log: Any, trace: str = "") -> None:
         self.log(_TRACE, log, trace)
 
     # ------------------------------------------- Utils ------------------------------------------ #

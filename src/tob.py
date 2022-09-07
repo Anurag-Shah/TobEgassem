@@ -55,9 +55,9 @@ class InvalidCommandError(Exception):
 
 
 class Tob(discord.Client):
-    # TODO: Docsify this to __init__
+    # TODO: Docsify this to __init__ (also these are not class variables)
     # Start time, to time ready seconds
-    start_time: timer
+    start_time: float
     # Twitter tokens in the following format: twitter_access_token;twitter_access_secret;twitter_consumer_key;twitter_consumer_secret
     # Used for Tweepy API
     twitter_tokens: str
@@ -94,7 +94,7 @@ class Tob(discord.Client):
         # Register event handlers
         self.event(self.on_ready)
         self.event(self.on_message)
-        signal.signal(signal.SIGINT, self._handle_ctrlc)
+        signal.signal(signal.SIGINT, self._handle_ctrlc)  #type:ignore
 
     # -------------------------------------- Event Handlers -------------------------------------- #
 
@@ -112,7 +112,7 @@ class Tob(discord.Client):
                 log.error(f"{DATA_PATH}:{e.lineno} - {e.msg}", "on_ready")
                 log.error("", "on_ready")
                 self.failed_loading_data = True
-            except e:
+            except Exception as e:
                 log.error(f"{e}", "on_ready")
                 self.failed_loading_data = True
         else:
@@ -200,9 +200,9 @@ class Tob(discord.Client):
             log.error(e, "on_message")
 
     # TODO: Command framework
-    def _handle_command(self, msg: discord.Message, text: str, ch_id: str, g_id: str) -> list[tuple[Callable[[Any], Any], dict[str, Any]]] :
+    def _handle_command(self, msg: discord.Message, text: str, ch_id: str, g_id: str) -> list[tuple[Callable[[], Any], dict[str, Any]]]:
         commands = [x for x in text.lstrip("|").split(" |") if x]
-        return_list: list[tuple[Callable[[Any], Any], dict[str, Any]]] = []
+        return_list: list[tuple[Callable[[], Any], dict[str, Any]]] = []
         try:
             for full_command in commands:
                 args = [x for x in full_command.split(" ") if x]
@@ -384,7 +384,7 @@ class Tob(discord.Client):
             log.debug(f'Commands: "{format_msg_full(msg)}"', "on_message::command")
             return return_list
 
-    def _handle_urlfix(self, msg: discord.Message, text: str) -> list[tuple[Callable[[Any], Any], dict[str, Any]]]:
+    def _handle_urlfix(self, msg: discord.Message, text: str) -> list[tuple[Callable[[], Any], dict[str, Any]]]:
         log.debug(f"Replace: {format_msg_full(msg)}", "on_message::url")
         urls_replaced: list[str] = []
         _text = " ".join(text.split("\n"))

@@ -14,7 +14,7 @@ def env(s: str) -> str:
     return _s
 
 
-def env_opt(s: str, default: str = None) -> Any:
+def env_opt(s: str, default: str|None = None) -> Any:
     _s = os.getenv(s)
     return _s if _s else default
 
