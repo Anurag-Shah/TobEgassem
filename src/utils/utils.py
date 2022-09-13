@@ -64,7 +64,7 @@ def format_msg_full(msg: discord.Message) -> str:
 
 def fullreverse(message: str):
     parens_list: list[tuple[str, str]] = [(")", "("), ("}", "{"), ("]", "[")]
-    delimiters = re.compile(r"<(?:&|#|@!|:.+:)[0-9]+>")
+    delimiters = re.compile(r"<(?:(?:(?:&|#|@|@!|@&|:.+?:)\d+?)|(?:t:\d+?:\w))>")
 
     parens = {y: x for x, y in parens_list}
     parens.update(parens_list)
