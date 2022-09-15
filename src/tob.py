@@ -91,10 +91,10 @@ class Tob(discord.Client):
         self.reply_to_invalid_command = to_bool(kwargs.pop("reply_to_invalid_command", False))
         self.clear_cache = to_bool(kwargs.pop("clear_cache", False))
 
-        if self.test:
-            self._loadData()
-            self._setSeed()
-        else:
+        self._loadData()
+        self._setSeed()
+
+        if not self.test:
             # Register event handlers
             self.event(self.on_ready)
             self.event(self.on_message)
@@ -476,21 +476,21 @@ class Tob(discord.Client):
 
     def _loadData(self) -> None:
         if exists(DATA_PATH):
-            log.debug("Reading data from " + DATA_PATH, "on_ready")
+            log.debug("Reading data from " + DATA_PATH, "_loadData")
             try:
                 self.data = readf(DATA_PATH)
             except json.JSONDecodeError as e:
-                log.error("Error decoding JSON:", "on_ready")
-                log.error(f"{DATA_PATH}:{e.lineno} - {e.msg}", "on_ready")
-                log.error("", "on_ready")
+                log.error("Error decoding JSON:", "_loadData")
+                log.error(f"{DATA_PATH}:{e.lineno} - {e.msg}", "_loadData")
+                log.error("", "_loadData")
                 self.failed_loading_data = True
             except Exception as e:
-                log.error(f"{e}", "on_ready")
+                log.error(f"{e}", "_loadData")
                 self.failed_loading_data = True
         else:
-            log.debug(DATA_PATH + " doesn't exist, creating a new file", "on_ready")
+            log.debug(DATA_PATH + " doesn't exist, creating a new file", "_loadData")
             writef(DATA_PATH, INIT_DATA)
-        log.debug(f"Loaded data:  {self.data}", "on_ready")
+        log.debug(f"Loaded data:  {self.data}", "_loadData")
 
     def _setSeed(self) -> None:
         seed = get_seed(self.data) + datetime.now().timestamp()
