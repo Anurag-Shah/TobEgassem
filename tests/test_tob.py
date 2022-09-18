@@ -7,62 +7,19 @@ from src.tob import Tob
 from src.utils.utils import *
 from src.utils.log import *
 
-user_id = 0
-msg_id = 0
 
+def get_message(content: str) -> discord.Message:
+    class Message:
+        def __init__(self, content: str) -> None:
+            self.author = "author"
+            self.guild = "guild"
+            self.channel = "channel"
+            self.content = content
 
-def get_user() -> discord.User:
-    global user_id
-    test_user_data = {
-        "username": "doni",
-        "id": str(user_id),
-        "discriminator": "#0000",
-        "avatar": "http://bruhngus.com/avatar.jpg",
-        "public_flags": 0,
-        "bot": False,
-        "system": False,
-    }
-    user_id += 1
-    return discord.User(state=None, data=test_user_data)
+        def reply(*a, **b) -> None:
+            pass
 
-
-def get_message(content: str, expected: Any) -> discord.Message:
-    global msg_id
-    test_user = get_user()
-
-    class State:
-        def store_user(*_, **__):
-            return None
-
-    class Channel:
-        def __init__(self) -> None:
-            self.id = 1
-
-        async def send(c: Any, *_, **__):
-            log.info(f'CONTENT  = "{c}"')
-            log.info(f'EXPECTED = "{expected}"')
-            return None
-
-    test_state = State()
-    test_channel = Channel()
-    test_message_data = {
-        "content": content,
-        "id": str(msg_id),
-        "author": test_user,
-        "attachments": [],
-        "embeds": [],
-        "edited_timestamp": "",
-        "type": "",
-        "pinned": False,
-        "mention_everyone": False,
-        "tts": False,
-    }
-    msg_id += 1
-    msg = discord.Message(
-        state=test_state,
-        channel=test_channel,
-        data=test_message_data,
-    )
+    msg = Message(content)
     return msg
 
 
@@ -70,7 +27,7 @@ class TestTob:
     tob = Tob(twitter_tokens=";;;;", test=True, log_level=5)
 
     def test_url_substitution(self):
-        test_message_content = """Media discordapp net
+        content = """Media discordapp net
 
     media.discordapp.net
     media.discordapp.net/bruhngus
@@ -101,23 +58,25 @@ class TestTob:
     <twitter.com/POTUS/status/1553479370383171584?s=20&t=3HCyDORTavdzSmYG03i5hQ>
 
     <https://twitter.com/POTUS/status/1553479370383171584?s=20&t=3HCyDORTavdzSmYG03i5hQ>"""
-        test_expected_result = "\n".join(
+        expected = "\n".join(
             [
-                "https://cdn.discordapp.com",
-                "https://cdn.discordapp.com/bruhngus",
-                "https://cdn.discordapp.com/bruhngus/bruhng",
-                "https://cdn.discordapp.com/bruhngus/bruhng/us",
-                "https://cdn.discordapp.com",
-                "https://cdn.discordapp.com/bruhngus",
-                "https://cdn.discordapp.com/bruhngus/bruhng",
-                "https://cdn.discordapp.com/bruhngus/bruhng/us",
+                # "https://cdn.discordapp.com",
+                # "https://cdn.discordapp.com/bruhngus",
+                # "https://cdn.discordapp.com/bruhngus/bruhng",
+                # "https://cdn.discordapp.com/bruhngus/bruhng/us",
+                # "https://cdn.discordapp.com",
+                # "https://cdn.discordapp.com/bruhngus",
+                # "https://cdn.discordapp.com/bruhngus/bruhng",
+                # "https://cdn.discordapp.com/bruhngus/bruhng/us",
                 "https://vxtwitter.com/POTUS/status/1553479370383171584?s=20&t=3HCyDORTavdzSmYG03i5hQ",
                 "https://vxtwitter.com/POTUS/status/1553479370383171584?s=20&t=3HCyDORTavdzSmYG03i5hQ",
             ]
         )
-        test_message = get_message(test_message_content, test_expected_result)
 
-        asyncio.run(self.tob.on_message(test_message))
+        msg = get_message(content)
+
+        (_, o) = self.tob._handle_urlfix(msg, content)
+        assert o["content"] == expected
 
     def test_reverse(self):
         assert fullreverse("hello world") == "dlrow olleh"

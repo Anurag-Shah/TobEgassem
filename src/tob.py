@@ -27,7 +27,7 @@ INIT_DATA = {
     "channels": [],
     "guilds": [],
     "blocked_channels": [],
-    "cache": {},
+    "cache": {"is_twitter_video": {}},
 }
 
 # ------------------------------------------- Patterns ------------------------------------------- #
@@ -102,10 +102,14 @@ class Tob(discord.Client):
         self.reply_to_invalid_command = reply_to_invalid_command
         self.clear_cache = clear_cache
 
-        # Register event handlers
-        self.event(self.on_ready)
-        self.event(self.on_message)
-        signal.signal(signal.SIGINT, self._handle_ctrlc)  # type:ignore
+        self._loadData()
+        self._setSeed()
+
+        if not self.test:
+            # Register event handlers
+            self.event(self.on_ready)
+            self.event(self.on_message)
+            signal.signal(signal.SIGINT, self._handle_ctrlc)
 
     # -------------------------------------- Event Handlers -------------------------------------- #
 
@@ -113,27 +117,6 @@ class Tob(discord.Client):
         elapsed = timer() - self.start_time
         log.info("Ready after:  {:.3f}s".format(elapsed), "on_ready")
         log.info(f"Logged in as: {self.user}", "on_ready")
-
-        if exists(DATA_PATH):
-            log.debug("Reading data from " + DATA_PATH, "on_ready")
-            try:
-                self.data = readf(DATA_PATH)
-            except json.JSONDecodeError as e:
-                log.error("Error decoding JSON:", "on_ready")
-                log.error(f"{DATA_PATH}:{e.lineno} - {e.msg}", "on_ready")
-                log.error("", "on_ready")
-                self.failed_loading_data = True
-            except Exception as e:
-                log.error(f"{e}", "on_ready")
-                self.failed_loading_data = True
-        else:
-            log.debug(DATA_PATH + " doesn't exist, creating a new file", "on_ready")
-            writef(DATA_PATH, INIT_DATA)
-        log.debug(f"Loaded data:  {self.data}", "on_ready")
-
-        seed = get_seed(self.data) + datetime.now().timestamp()
-        log.debug(f"Loaded seed:  {seed}", "on_ready")
-        random.seed(seed)
 
         self.api = get_tweepy_api_from_string(self.twitter_tokens)
 
@@ -498,6 +481,29 @@ class Tob(discord.Client):
         except:
             pass
         self._save()
+
+    def _loadData(self) -> None:
+        if exists(DATA_PATH):
+            log.debug("Reading data from " + DATA_PATH, "_loadData")
+            try:
+                self.data = readf(DATA_PATH)
+            except json.JSONDecodeError as e:
+                log.error("Error decoding JSON:", "_loadData")
+                log.error(f"{DATA_PATH}:{e.lineno} - {e.msg}", "_loadData")
+                log.error("", "_loadData")
+                self.failed_loading_data = True
+            except Exception as e:
+                log.error(f"{e}", "_loadData")
+                self.failed_loading_data = True
+        else:
+            log.debug(DATA_PATH + " doesn't exist, creating a new file", "_loadData")
+            writef(DATA_PATH, INIT_DATA)
+        log.debug(f"Loaded data:  {self.data}", "_loadData")
+
+    def _setSeed(self) -> None:
+        seed = get_seed(self.data) + datetime.now().timestamp()
+        log.debug(f"Loaded seed:  {seed}", "_setSeed")
+        random.seed(seed)
 
     def _add_channel(self, channel_id: str) -> bool:
         if not isinstance(channel_id, str):
