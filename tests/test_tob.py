@@ -1,11 +1,14 @@
 import asyncio
 from typing import Any
 
+from dotenv import load_dotenv
 import discord
 
 from src.tob import Tob
 from src.utils.utils import *
 from src.utils.log import *
+
+load_dotenv()
 
 
 def get_message(content: str) -> discord.Message:
@@ -24,7 +27,7 @@ def get_message(content: str) -> discord.Message:
 
 
 class TestTob:
-    tob = Tob(twitter_tokens=";;;", test=True, log_level=5)
+    tob = Tob(twitter_tokens=env("TWITTER_TOKENS"), test=True, log_level=5)
 
     def test_url_substitution(self):
         content = """Media discordapp net
