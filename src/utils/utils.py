@@ -37,8 +37,8 @@ def to_bool(v: Any) -> bool:
 
 def get_tweepy_api_from_string(tw_tokens: str) -> tweepy.API:
     tw_info = tw_tokens.split(";")
-    if not ";" in tw_tokens or len(tw_info) != 4:
-        raise EnvironmentError(f"Invalid {tw_tokens} environment variable: bad format")
+    if len(tw_info) != 4:
+        raise TypeError(f"Twitter tokens error: bad format")
     tw_access_token = tw_info[0]
     ts_access_secret = tw_info[1]
     tw_consumer_key = tw_info[2]

@@ -24,7 +24,7 @@ def get_message(content: str) -> discord.Message:
 
 
 class TestTob:
-    tob = Tob(twitter_tokens=";;;;", test=True, log_level=5)
+    tob = Tob(twitter_tokens=";;;", test=True, log_level=5)
 
     def test_url_substitution(self):
         content = """Media discordapp net

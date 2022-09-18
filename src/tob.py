@@ -60,8 +60,7 @@ class Tob(discord.Client):
     # Start time, to time ready seconds
     start_time: float
     # Twitter tokens in the following format: twitter_access_token;twitter_access_secret;twitter_consumer_key;twitter_consumer_secret
-    # Used for Tweepy API
-    twitter_tokens: str
+    api: tweepy.API
     # In how many messages will reverse a message
     probability: int
     # Replaces twitter.com when it's a Twitter video (because Discord default embeds suck)
@@ -92,8 +91,7 @@ class Tob(discord.Client):
         super().__init__(intents=intents)
 
         self.start_time = timer()
-        # Verified during on_ready
-        self.twitter_tokens = twitter_tokens
+        self.api = get_tweepy_api_from_string(twitter_tokens)
         log.set_log_level(log_level)
         log.set_use_ansi_colors(log_color)
         self.probability = probability
@@ -117,8 +115,6 @@ class Tob(discord.Client):
         elapsed = timer() - self.start_time
         log.info("Ready after:  {:.3f}s".format(elapsed), "on_ready")
         log.info(f"Logged in as: {self.user}", "on_ready")
-
-        self.api = get_tweepy_api_from_string(self.twitter_tokens)
 
     async def on_message(self, msg: discord.Message) -> None:
         # Dont respond to own messages or no message content
