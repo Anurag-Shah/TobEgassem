@@ -14,9 +14,19 @@ def env(s: str) -> str:
     return _s
 
 
-def env_opt(s: str, default: str = None) -> Any:
+def env_opt(s: str, default: str | None = None) -> Any:
     _s = os.getenv(s)
     return _s if _s else default
+
+
+def env_arg(args: dict, env: str, name: str, default: Any | None = None):
+    s = os.getenv(env)
+    if s is not None:
+        args[name] = s
+    elif default is not None:
+        args[name] = default
+    else:
+        raise EnvironmentError(f"Missing '{env}' environment variable")
 
 
 def to_bool(v: Any) -> bool:
@@ -54,7 +64,7 @@ def format_msg_full(msg: discord.Message) -> str:
 
 def fullreverse(message: str):
     parens_list: list[tuple[str, str]] = [(")", "("), ("}", "{"), ("]", "[")]
-    delimiters = re.compile(r"<(?:&|#|@!|:.+:)[0-9]+>")
+    delimiters = re.compile(r"<(?:(?:(?:&|#|@|@!|@&|:.+?:)\d+?)|(?:t:\d+?:\w))>")
 
     parens = {y: x for x, y in parens_list}
     parens.update(parens_list)
@@ -95,8 +105,8 @@ def get_seed(data: Any) -> float:
     return seed
 
 
-def _underscore(s: Any) -> str:
-    return "_".join(str(s).split(" "))
+# def _underscore(s: Any) -> str:
+#     return "_".join(str(s).split(" "))
 
 
 def ends_with(s: str, l: list[str]) -> bool:

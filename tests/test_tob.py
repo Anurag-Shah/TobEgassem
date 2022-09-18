@@ -90,3 +90,11 @@ class TestTob:
         # emote
         assert fullreverse("<:Clueless:910410243505283112>") == "<:Clueless:910410243505283112>"
         assert fullreverse("<:4C1:675444762333151232>") == "<:4C1:675444762333151232>"
+        # time
+        assert fullreverse("<")
+        # delimits
+        assert fullreverse("abc<@123>def<@456>ghi") == "ihg<@456>fed<@123>cba"
+        # various negative tests
+        assert fullreverse("<@123a>") == ">a321@<"
+        assert fullreverse("<@123&456>") == ">654&321@<"
+        assert fullreverse("<:qwert:y>") == ">y:trewq:<"

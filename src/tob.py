@@ -4,7 +4,7 @@ import re
 import signal
 import sys
 from timeit import default_timer as timer
-from typing import TypedDict
+from typing import Any, Callable, TypedDict
 
 from datetime import datetime
 import discord
@@ -33,12 +33,13 @@ INIT_DATA = {
 # ------------------------------------------- Patterns ------------------------------------------- #
 
 # https://regexr.com/6r22i
-TOB_PATTERN = r"(?:^|\W)tob(?:$|\W)"
-TOB_FLAGS: re.RegexFlag = re.I | re.M
+TOB_REGEX = re.compile(r"(?:^|\W)tob(?:$|\W)", re.I | re.M)
 
 # https://regexr.com/6r26d
-URL_PATTERN = r"[(\<)?(http(s)?):\/\/(www\.)?a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,6}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*(\>)?)"
-URL_FLAGS: re.RegexFlag = re.I | re.M
+URL_REGEX = re.compile(
+    r"[(\<)?(http(s)?):\/\/(www\.)?a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,6}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*(\>)?)",
+    re.I | re.M,
+)
 
 # ---------------------------------------------- Tob --------------------------------------------- #
 
@@ -47,7 +48,7 @@ class Data(TypedDict):
     guilds: list[str]
     channels: list[str]
     blocked_channels: list[str]
-    cache: dict[str, object]
+    cache: dict[str, Any]
 
 
 class InvalidCommandError(Exception):
@@ -55,9 +56,9 @@ class InvalidCommandError(Exception):
 
 
 class Tob(discord.Client):
-    # TODO: Docsify this to __init__
+    # TODO: Docsify this to __init__ (also these are not class variables)
     # Start time, to time ready seconds
-    start_time: timer
+    start_time: float
     # Twitter tokens in the following format: twitter_access_token;twitter_access_secret;twitter_consumer_key;twitter_consumer_secret
     # Used for Tweepy API
     twitter_tokens: str
@@ -75,21 +76,31 @@ class Tob(discord.Client):
     data: Any = INIT_DATA
     failed_loading_data: bool = False
 
-    def __init__(self, **kwargs) -> None:
+    def __init__(
+        self,
+        twitter_tokens: str,
+        log_level: int = 1,
+        log_color: bool = False,
+        probability: int = 69,
+        twitter_replacement: str = "vxtwitter.com",
+        test: bool = False,
+        reply_to_invalid_command: bool = False,
+        clear_cache: bool = False,
+    ) -> None:
         intents = discord.Intents().default()
         intents.message_content = True
         super().__init__(intents=intents)
 
         self.start_time = timer()
         # Verified during on_ready
-        self.twitter_tokens = str(kwargs.pop("twitter_tokens"))
-        log.set_log_level(int(kwargs.pop("log_level", 1)))
-        log.set_use_ansi_colors(to_bool(kwargs.pop("log_color", False)))
-        self.probability = int(kwargs.pop("probability", 69))
-        self.twitter_replacement = str(kwargs.pop("twitter_replacement", "vxtwitter.com"))
-        self.test = to_bool(kwargs.pop("test", False))
-        self.reply_to_invalid_command = to_bool(kwargs.pop("reply_to_invalid_command", False))
-        self.clear_cache = to_bool(kwargs.pop("clear_cache", False))
+        self.twitter_tokens = twitter_tokens
+        log.set_log_level(log_level)
+        log.set_use_ansi_colors(log_color)
+        self.probability = probability
+        self.twitter_replacement = twitter_replacement
+        self.test = test
+        self.reply_to_invalid_command = reply_to_invalid_command
+        self.clear_cache = clear_cache
 
         self._loadData()
         self._setSeed()
@@ -132,8 +143,9 @@ class Tob(discord.Client):
 
             # Replace twitter.com and/or media.discordapp.net
             if "twitter.com" in text_lower or "media.discordapp.net" in text_lower:
-                if x := self._handle_urlfix(msg, text):
-                    await x[0](**x[1])
+                if await_responses := self._handle_urlfix(msg, text):
+                    for x in await_responses:
+                        await x[0](**x[1])
 
             # Replies with Sol's YouTube channel
             elif text_lower == "sub":
@@ -166,7 +178,7 @@ class Tob(discord.Client):
                     await msg.channel.send(fullreverse(text))
 
             # Reacts with specific text to certain keywords
-            if len(re.findall(TOB_PATTERN, text, TOB_FLAGS)) > 0:
+            if len(re.findall(TOB_REGEX, text)) > 0:
                 log.debug(f'React "Tob": {format_msg_full(msg)}', "on_message::react")
                 await msg.add_reaction("❤")
             if text_lower == "like":
@@ -176,21 +188,17 @@ class Tob(discord.Client):
                 log.debug(f'React "F": {format_msg_full(msg)}', "on_message::react")
                 await msg.add_reaction("🇫")
 
-        except discord.Forbidden as e:
+        except (discord.Forbidden, discord.DiscordServerError) as e:
             log.warn(e, "on_message")
-        except discord.NotFound as e:
-            log.error(e, "on_message")
-        except discord.DiscordServerError as e:
-            log.warn(e, "on_message")
-        except discord.HTTPException as e:
-            log.error(e, "on_message")
-        except Exception as e:
+        except Exception as e:  # also discord.NotFound, discord.HTTPException
             log.error(e, "on_message")
 
     # TODO: Command framework
-    def _handle_command(self, msg: discord.Message, text: str, ch_id: str, g_id: str) -> None:
+    def _handle_command(
+        self, msg: discord.Message, text: str, ch_id: str, g_id: str
+    ) -> list[tuple[Callable[[], Any], dict[str, Any]]]:
         commands = [x for x in text.lstrip("|").split(" |") if x]
-        return_list = []
+        return_list: list[tuple[Callable[[], Any], dict[str, Any]]] = []
         try:
             for full_command in commands:
                 args = [x for x in full_command.split(" ") if x]
@@ -372,11 +380,13 @@ class Tob(discord.Client):
             log.debug(f'Commands: "{format_msg_full(msg)}"', "on_message::command")
             return return_list
 
-    def _handle_urlfix(self, msg: discord.Message, text: str) -> None:
+    def _handle_urlfix(
+        self, msg: discord.Message, text: str
+    ) -> list[tuple[Callable[[], Any], dict[str, Any]]]:
         log.debug(f"Replace: {format_msg_full(msg)}", "on_message::url")
         urls_replaced: list[str] = []
         _text = " ".join(text.split("\n"))
-        iter = re.finditer(URL_PATTERN, _text, URL_FLAGS)
+        iter = re.finditer(URL_REGEX, _text)
         for match in iter:
             url = match.group()
 
@@ -447,10 +457,8 @@ class Tob(discord.Client):
                     urls_replaced[i] = "https://" + url
                 i += 1
 
-            return (
-                msg.reply,
-                {"content": "\n".join(urls_replaced), "mention_author": False},
-            )
+            return [(msg.reply, {"content": "\n".join(urls_replaced), "mention_author": False})]
+        return []
 
     def _handle_ctrlc(self, sig: signal.Signals, frame: Any) -> None:
         print()  # \n
