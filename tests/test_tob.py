@@ -75,7 +75,7 @@ class TestTob:
 
         msg = get_message(content)
 
-        (_, o) = self.tob._handle_urlfix(msg, content)
+        (_, o) = self.tob._handle_urlfix(msg, content)[0]
         assert o["content"] == expected
 
     def test_reverse(self):
