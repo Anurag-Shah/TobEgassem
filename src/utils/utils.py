@@ -14,12 +14,12 @@ def env(s: str) -> str:
     return _s
 
 
-def env_opt(s: str, default: str|None = None) -> Any:
+def env_opt(s: str, default: str | None = None) -> Any:
     _s = os.getenv(s)
     return _s if _s else default
 
 
-def env_arg(args: dict, env: str, name: str, default: Any|None = None):
+def env_arg(args: dict, env: str, name: str, default: Any | None = None):
     s = os.getenv(env)
     if s is not None:
         args[name] = s

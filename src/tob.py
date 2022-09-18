@@ -36,7 +36,10 @@ INIT_DATA = {
 TOB_REGEX = re.compile(r"(?:^|\W)tob(?:$|\W)", re.I | re.M)
 
 # https://regexr.com/6r26d
-URL_REGEX = re.compile(r"[(\<)?(http(s)?):\/\/(www\.)?a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,6}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*(\>)?)", re.I | re.M)
+URL_REGEX = re.compile(
+    r"[(\<)?(http(s)?):\/\/(www\.)?a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,6}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*(\>)?)",
+    re.I | re.M,
+)
 
 # ---------------------------------------------- Tob --------------------------------------------- #
 
@@ -73,15 +76,16 @@ class Tob(discord.Client):
     data: Any = INIT_DATA
     failed_loading_data: bool = False
 
-    def __init__(self,
-            twitter_tokens: str,
-            log_level: int = 1,
-            log_color: bool = False,
-            probability: int = 69,
-            twitter_replacement: str = "vxtwitter.com",
-            test: bool = False,
-            reply_to_invalid_command: bool = False,
-            clear_cache: bool = False,
+    def __init__(
+        self,
+        twitter_tokens: str,
+        log_level: int = 1,
+        log_color: bool = False,
+        probability: int = 69,
+        twitter_replacement: str = "vxtwitter.com",
+        test: bool = False,
+        reply_to_invalid_command: bool = False,
+        clear_cache: bool = False,
     ) -> None:
         intents = discord.Intents().default()
         intents.message_content = True
@@ -101,7 +105,7 @@ class Tob(discord.Client):
         # Register event handlers
         self.event(self.on_ready)
         self.event(self.on_message)
-        signal.signal(signal.SIGINT, self._handle_ctrlc)  #type:ignore
+        signal.signal(signal.SIGINT, self._handle_ctrlc)  # type:ignore
 
     # -------------------------------------- Event Handlers -------------------------------------- #
 
@@ -207,7 +211,9 @@ class Tob(discord.Client):
             log.error(e, "on_message")
 
     # TODO: Command framework
-    def _handle_command(self, msg: discord.Message, text: str, ch_id: str, g_id: str) -> list[tuple[Callable[[], Any], dict[str, Any]]]:
+    def _handle_command(
+        self, msg: discord.Message, text: str, ch_id: str, g_id: str
+    ) -> list[tuple[Callable[[], Any], dict[str, Any]]]:
         commands = [x for x in text.lstrip("|").split(" |") if x]
         return_list: list[tuple[Callable[[], Any], dict[str, Any]]] = []
         try:
@@ -391,7 +397,9 @@ class Tob(discord.Client):
             log.debug(f'Commands: "{format_msg_full(msg)}"', "on_message::command")
             return return_list
 
-    def _handle_urlfix(self, msg: discord.Message, text: str) -> list[tuple[Callable[[], Any], dict[str, Any]]]:
+    def _handle_urlfix(
+        self, msg: discord.Message, text: str
+    ) -> list[tuple[Callable[[], Any], dict[str, Any]]]:
         log.debug(f"Replace: {format_msg_full(msg)}", "on_message::url")
         urls_replaced: list[str] = []
         _text = " ".join(text.split("\n"))
