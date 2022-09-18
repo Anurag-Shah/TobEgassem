@@ -15,7 +15,7 @@ def main():
     args: dict[str, Any] = {}
     env_arg(args, "TWITTER_TOKENS", "twitter_tokens")
     env_arg(args, "LOG_LEVEL", "log_level", default=1)
-    env_arg(args, "REPLY_TO_INVALID", "reply_to_invalid", default=False)
+    env_arg(args, "REPLY_TO_INVALID_COMMAND", "reply_to_invalid_command", default=False)
     env_arg(args, "LOG_COLOR", "log_color", default=False)
     env_arg(args, "CLEAR_CACHE", "clear_cache", default=False)
 
