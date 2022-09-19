@@ -1,4 +1,5 @@
 import json
+import random
 import os
 import re
 from typing import Any
@@ -114,3 +115,6 @@ def ends_with(s: str, l: list[str]) -> bool:
         if s.endswith(x):
             return True
     return False
+
+def random_chance(p:int, factor:float = 1.0) -> bool:
+    return random.random() * p / factor < 1.0
