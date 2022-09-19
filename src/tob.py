@@ -375,6 +375,9 @@ class Tob(discord.Client):
 
                 elif command == "echo":
                     return_list.append((msg.reply, {"content": args[1:], "mention_author": False}))
+                
+                elif command == "toolong":
+                    return_list.append((msg.reply, {"content": AINT_READING_ALL_THAT, "mention_author": False}))
 
                 else:
                     raise InvalidCommandError()
