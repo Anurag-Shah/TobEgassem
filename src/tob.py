@@ -173,12 +173,6 @@ class Tob(discord.Client):
                     mention_author=False,
                 )
 
-            # Rolls 1 / self.probability and reverses the message
-            elif self._valid_message(msg):
-                if random_chance(self.probability):
-                    log.debug(f"Reverse: {format_msg_full(msg)}", "on_message::reverse")
-                    await msg.channel.send(fullreverse(text))
-
             # ain't reading all that, higher probability
             elif len(text_lower) > 1000 and random_chance(self.probability, 6.0):
                 log.debug("ain't reading", "on_message::toolong")
@@ -186,6 +180,12 @@ class Tob(discord.Client):
                     AINT_READING_ALL_THAT,
                     mention_author=False,
                 )
+
+            # Rolls 1 / self.probability and reverses the message
+            elif self._valid_message(msg):
+                if random_chance(self.probability):
+                    log.debug(f"Reverse: {format_msg_full(msg)}", "on_message::reverse")
+                    await msg.channel.send(fullreverse(text))
 
             # Reacts with specific text to certain keywords
             if len(re.findall(TOB_REGEX, text)) > 0:
