@@ -374,7 +374,7 @@ class Tob(discord.Client):
                     return_list.append((msg.reply, {"embed": emb, "mention_author": False}))
 
                 elif command == "echo":
-                    return_list.append((msg.reply, {"content": args[1:], "mention_author": False}))
+                    return_list.append((msg.reply, {"content": full_command.split(" ", 1)[1].lstrip(), "mention_author": False}))
                 
                 elif command == "toolong":
                     return_list.append((msg.reply, {"content": AINT_READING_ALL_THAT, "mention_author": False}))
