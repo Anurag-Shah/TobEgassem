@@ -30,6 +30,10 @@ INIT_DATA = {
     "cache": {"is_twitter_video": {}},
 }
 
+AINT_READING_ALL_THAT = (
+    r"https://cdn.discordapp.com/attachments/441331703181475862/908667792000159795/IMG_0571.jpg"
+)
+
 # ------------------------------------------- Patterns ------------------------------------------- #
 
 # https://regexr.com/6r22i
@@ -107,7 +111,7 @@ class Tob(discord.Client):
             # Register event handlers
             self.event(self.on_ready)
             self.event(self.on_message)
-            signal.signal(signal.SIGINT, self._handle_ctrlc)
+            signal.signal(signal.SIGINT, self._handle_ctrlc)  # type:ignore
 
     # -------------------------------------- Event Handlers -------------------------------------- #
 
@@ -167,9 +171,17 @@ class Tob(discord.Client):
                     mention_author=False,
                 )
 
+            # ain't reading all that, higher probability
+            elif len(text_lower) > 1000 and random_chance(self.probability, 6.0):
+                log.debug("ain't reading", "on_message::toolong")
+                await msg.reply(
+                    AINT_READING_ALL_THAT,
+                    mention_author=False,
+                )
+
             # Rolls 1 / self.probability and reverses the message
             elif self._valid_message(msg):
-                if random.randint(1, self.probability) == self.probability:
+                if random_chance(self.probability):
                     log.debug(f"Reverse: {format_msg_full(msg)}", "on_message::reverse")
                     await msg.channel.send(fullreverse(text))
 
@@ -360,7 +372,20 @@ class Tob(discord.Client):
                     return_list.append((msg.reply, {"embed": emb, "mention_author": False}))
 
                 elif command == "echo":
-                    return_list.append((msg.reply, {"content": args[1:], "mention_author": False}))
+                    return_list.append(
+                        (
+                            msg.reply,
+                            {
+                                "content": full_command.split(" ", 1)[1].lstrip(),
+                                "mention_author": False,
+                            },
+                        )
+                    )
+
+                elif command == "toolong":
+                    return_list.append(
+                        (msg.reply, {"content": AINT_READING_ALL_THAT, "mention_author": False})
+                    )
 
                 else:
                     raise InvalidCommandError()
