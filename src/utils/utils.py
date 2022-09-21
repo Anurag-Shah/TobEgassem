@@ -116,5 +116,6 @@ def ends_with(s: str, l: list[str]) -> bool:
             return True
     return False
 
-def random_chance(p:int, factor:float = 1.0) -> bool:
+
+def random_chance(p: int, factor: float = 1.0) -> bool:
     return random.random() * p / factor < 1.0

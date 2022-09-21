@@ -30,7 +30,9 @@ INIT_DATA = {
     "cache": {"is_twitter_video": {}},
 }
 
-AINT_READING_ALL_THAT = r"https://cdn.discordapp.com/attachments/441331703181475862/908667792000159795/IMG_0571.jpg"
+AINT_READING_ALL_THAT = (
+    r"https://cdn.discordapp.com/attachments/441331703181475862/908667792000159795/IMG_0571.jpg"
+)
 
 # ------------------------------------------- Patterns ------------------------------------------- #
 
@@ -111,7 +113,7 @@ class Tob(discord.Client):
             # Register event handlers
             self.event(self.on_ready)
             self.event(self.on_message)
-            signal.signal(signal.SIGINT, self._handle_ctrlc) #type:ignore
+            signal.signal(signal.SIGINT, self._handle_ctrlc)  # type:ignore
 
     # -------------------------------------- Event Handlers -------------------------------------- #
 
@@ -374,10 +376,20 @@ class Tob(discord.Client):
                     return_list.append((msg.reply, {"embed": emb, "mention_author": False}))
 
                 elif command == "echo":
-                    return_list.append((msg.reply, {"content": full_command.split(" ", 1)[1].lstrip(), "mention_author": False}))
-                
+                    return_list.append(
+                        (
+                            msg.reply,
+                            {
+                                "content": full_command.split(" ", 1)[1].lstrip(),
+                                "mention_author": False,
+                            },
+                        )
+                    )
+
                 elif command == "toolong":
-                    return_list.append((msg.reply, {"content": AINT_READING_ALL_THAT, "mention_author": False}))
+                    return_list.append(
+                        (msg.reply, {"content": AINT_READING_ALL_THAT, "mention_author": False})
+                    )
 
                 else:
                     raise InvalidCommandError()
