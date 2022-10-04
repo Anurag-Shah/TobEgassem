@@ -172,7 +172,7 @@ class Tob(discord.Client):
                 )
 
             # ain't reading all that, higher probability
-            elif len(text_lower) > 1000 and random_chance(self.probability, 6.0):
+            elif len(text_lower) > 1000:
                 log.debug("ain't reading", "on_message::toolong")
                 await msg.reply(
                     AINT_READING_ALL_THAT,
