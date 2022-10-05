@@ -20,8 +20,8 @@ from utils.utils import *
 
 DATA_PATH = "data.json"
 
-# https://www.businessinsider.com/how-to-send-videos-on-discord
-DISCORD_VIDEO_EXTS = [".webm", ".mov"]  # ".mp4" works with media.discordapp.net
+# replaces media.discordapp.net with cdn.discordapp.com for these extensions
+DISCORD_VIDEO_EXTS = [".webm"]  # .mp4 and .mov work with media.discordapp.net
 
 INIT_DATA = {
     "channels": [],
@@ -172,7 +172,7 @@ class Tob(discord.Client):
                 )
 
             # ain't reading all that, higher probability
-            elif len(text_lower) > 1000 and random_chance(self.probability, 6.0):
+            elif len(text_lower) > 1000:
                 log.debug("ain't reading", "on_message::toolong")
                 await msg.reply(
                     AINT_READING_ALL_THAT,
