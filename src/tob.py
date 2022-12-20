@@ -20,8 +20,8 @@ from utils.utils import *
 
 DATA_PATH = "data.json"
 
-# https://www.businessinsider.com/how-to-send-videos-on-discord
-DISCORD_VIDEO_EXTS = [".webm", ".mov"]  # ".mp4" works with media.discordapp.net
+# replaces media.discordapp.net with cdn.discordapp.com for these extensions
+DISCORD_VIDEO_EXTS = [".webm"]  # .mp4 and .mov work with media.discordapp.net
 
 INIT_DATA = {
     "channels": [],
