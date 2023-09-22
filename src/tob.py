@@ -30,9 +30,11 @@ INIT_DATA = {
     "cache": {"is_twitter_video": {}},
 }
 
-AINT_READING_ALL_THAT = (
-    r"https://cdn.discordapp.com/attachments/441331703181475862/908667792000159795/IMG_0571.jpg"
-)
+REACTION_IMGS = {
+    "toolong": r"https://cdn.discordapp.com/attachments/441331703181475862/908667792000159795/IMG_0571.jpg",
+    "busa": r"https://cdn.discordapp.com/attachments/441331703181475862/787027326901682206/me_waiting_busa.png",
+    "funny": r"https://cdn.discordapp.com/attachments/441331703181475862/874813926834057266/video0.mp4",
+}
 
 # ------------------------------------------- Patterns ------------------------------------------- #
 
@@ -175,7 +177,7 @@ class Tob(discord.Client):
             elif len(text_lower) > 1000:
                 log.debug("ain't reading", "on_message::toolong")
                 await msg.reply(
-                    AINT_READING_ALL_THAT,
+                    REACTION_IMGS["toolong"],
                     mention_author=False,
                 )
 
@@ -382,9 +384,9 @@ class Tob(discord.Client):
                         )
                     )
 
-                elif command == "toolong":
+                elif command in REACTION_IMGS:
                     return_list.append(
-                        (msg.reply, {"content": AINT_READING_ALL_THAT, "mention_author": False})
+                        (msg.reply, {"content": REACTION_IMGS[command], "mention_author": False})
                     )
 
                 else:
