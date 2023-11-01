@@ -11,6 +11,7 @@ import discord
 
 from utils.log import log
 from utils.utils import *
+from utils.font import fontify
 
 # ------------------------------------------------------------------------------------------------ #
 #                                          TobEgassem v3.0                                         #
@@ -211,7 +212,7 @@ class Tob(discord.Client):
         return_list: list[tuple[Callable[[], Any], dict[str, Any]]] = []
         try:
             for full_command in commands:
-                args = [x for x in full_command.split(" ") if x]
+                args = [x for x in full_command.split()]
                 if len(args) < 1:
                     raise InvalidCommandError()
                 command = args[0].lower()
@@ -384,10 +385,19 @@ class Tob(discord.Client):
                         )
                     )
 
-                elif command in REACTION_IMGS:
+                elif command == "crphont":
                     return_list.append(
-                        (msg.reply, {"content": REACTION_IMGS[command], "mention_author": False})
+                        (
+                            msg.reply,
+                            {
+                                "content": fontify(full_command.split(" ", 1)[1].lstrip()),
+                                "mention_author": False,
+                            },
+                        )
                     )
+
+                elif command in REACTION_IMGS:
+                    return_list.append((msg.reply, {"content": REACTION_IMGS[command], "mention_author": False}))
 
                 else:
                     raise InvalidCommandError()
@@ -403,9 +413,7 @@ class Tob(discord.Client):
             log.debug(f'Commands: "{format_msg_full(msg)}"', "on_message::command")
             return return_list
 
-    def _handle_urlfix(
-        self, msg: discord.Message, text: str
-    ) -> list[tuple[Callable[[], Any], dict[str, Any]]]:
+    def _handle_urlfix(self, msg: discord.Message, text: str) -> list[tuple[Callable[[], Any], dict[str, Any]]]:
         log.debug(f"Replace: {format_msg_full(msg)}", "on_message::url")
         urls_replaced: list[str] = []
         _text = " ".join(text.split("\n"))
@@ -575,9 +583,7 @@ class Tob(discord.Client):
     def _valid_message(self, msg: discord.Message) -> bool:
         ch_id = str(msg.channel.id)
         g_id = str(msg.guild.id) if msg.guild else ""
-        return (ch_id not in self.data["blocked_channels"]) and (
-            ch_id in self.data["channels"] or g_id in self.data["guilds"]
-        )
+        return (ch_id not in self.data["blocked_channels"]) and (ch_id in self.data["channels"] or g_id in self.data["guilds"])
 
     # TODO
     def _handle_invalid_command(self, msg: discord.Message) -> None:
