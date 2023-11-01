@@ -24,6 +24,7 @@ font = [
     [line[i : i + letterwidth] for i in range(0, len(line), letterwidth + spacingwidth)] for line in font.split("\n") if line
 ]
 
+
 def niter(t, n: int):
     a = iter(t)
     try:
@@ -31,6 +32,7 @@ def niter(t, n: int):
             yield [next(a) for _ in range(n)]
     except StopIteration:
         return
+
 
 font = [[lines[j][i] for j in range(letterheight)] for lines in niter(font, letterheight) for i in range(len(lines[0]))]
 
@@ -56,6 +58,3 @@ def fontify(text: str):
             out += "".join((fontd[c][y] for c in line)) + "\n"
         out += "\n"
     return f"```\n{out[:-2]}```"
-
-
-print(fontify("hello\n\nthere"))
