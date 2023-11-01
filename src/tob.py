@@ -11,6 +11,7 @@ import discord
 
 from utils.log import log
 from utils.utils import *
+from utils.font import fontify
 
 # ------------------------------------------------------------------------------------------------ #
 #                                          TobEgassem v3.0                                         #
@@ -211,7 +212,7 @@ class Tob(discord.Client):
         return_list: list[tuple[Callable[[], Any], dict[str, Any]]] = []
         try:
             for full_command in commands:
-                args = [x for x in full_command.split(" ") if x]
+                args = [x for x in full_command.split()]
                 if len(args) < 1:
                     raise InvalidCommandError()
                 command = args[0].lower()
@@ -379,6 +380,17 @@ class Tob(discord.Client):
                             msg.reply,
                             {
                                 "content": full_command.split(" ", 1)[1].lstrip(),
+                                "mention_author": False,
+                            },
+                        )
+                    )
+                
+                elif command == "crphont":
+                    return_list.append(
+                        (
+                            msg.reply,
+                            {
+                                "content": fontify(full_command.split(" ", 1)[1].lstrip()),
                                 "mention_author": False,
                             },
                         )
