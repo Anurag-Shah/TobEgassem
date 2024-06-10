@@ -1,4 +1,4 @@
 colorama      == 0.4.*
-discord       == 2.0.*
-python_dotenv == 0.21.*
-tweepy        == 4.10.*
+discord       == 2.3.*
+python_dotenv == 1.0.*
+tweepy        == 4.14.*
