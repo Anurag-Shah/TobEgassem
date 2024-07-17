@@ -33,8 +33,15 @@ INIT_DATA = {
 
 REACTION_IMGS = {
     "toolong": r"https://cdn.discordapp.com/attachments/441331703181475862/908667792000159795/IMG_0571.jpg",
+    "essay": r"https://cdn.discordapp.com/attachments/638026953387147294/1262988669266952294/image.png?ex=6698995b&is=669747db&hm=3b7880224e522ee8502509be4af222b81605ded66317f868a1254038ff0d7ad6&",
     "busa": r"https://cdn.discordapp.com/attachments/441331703181475862/787027326901682206/me_waiting_busa.png",
     "funny": r"https://cdn.discordapp.com/attachments/441331703181475862/874813926834057266/video0.mp4",
+    "kys": r"""💕         💕  💕          💕    💕💕💕
+💕     💕         💕   💕    💕            💕
+💕💕                   💕          💕
+💕 💕                  💕                    💕
+💕      💕             💕         💕            💕
+💕         💕          💕             💕💕 💕""",
 }
 
 # ------------------------------------------- Patterns ------------------------------------------- #
@@ -178,7 +185,10 @@ class Tob(discord.Client):
             elif len(text_lower) > 1000:
                 log.debug("ain't reading", "on_message::toolong")
                 await msg.reply(
-                    REACTION_IMGS["toolong"],
+                    random.choices(
+                        (REACTION_IMGS["toolong"], REACTION_IMGS["essay"]),
+                        (3, 1)
+                    )[0],
                     mention_author=False,
                 )
 
