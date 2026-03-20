@@ -208,6 +208,9 @@ class Tob(discord.Client):
             if text_lower == "f":
                 log.debug(f'React "F": {format_msg_full(msg)}', "on_message::react")
                 await msg.add_reaction("🇫")
+            if "thè" in text_lower or "thé" in text_lower:
+                log.debug(f'React "Tea": {format_msg_full(msg)}', "on_message::react")
+                await msg.add_reaction("🍵")
 
         except (discord.Forbidden, discord.DiscordServerError) as e:
             log.warn(e, "on_message")
