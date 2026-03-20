@@ -28,6 +28,9 @@ def get_message(content: str) -> discord.Message:
 
 class TestTob:
     tob = Tob(twitter_tokens=env("TWITTER_TOKENS"), test=True, log_level=5)
+    # Pre-populate cache to avoid hitting the Twitter API.
+    tob.data["cache"]["is_twitter_video"]["1553120835686252544"] = False
+    tob.data["cache"]["is_twitter_video"]["1553479370383171584"] = True
 
     def test_url_substitution(self):
         content = """Media discordapp net
@@ -78,7 +81,7 @@ class TestTob:
 
         msg = get_message(content)
 
-        (_, o) = self.tob._handle_urlfix(msg, content)[0]
+        _, o = self.tob._handle_urlfix(msg, content)[0]
         assert o["content"] == expected
 
     def test_reverse(self):

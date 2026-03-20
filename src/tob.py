@@ -121,7 +121,7 @@ class Tob(discord.Client):
             # Register event handlers
             self.event(self.on_ready)
             self.event(self.on_message)
-            signal.signal(signal.SIGINT, self._handle_ctrlc)  # type:ignore
+            signal.signal(signal.SIGINT, self._handle_ctrlc)  # type: ignore
 
     # -------------------------------------- Event Handlers -------------------------------------- #
 
@@ -185,10 +185,7 @@ class Tob(discord.Client):
             elif len(text_lower) > 1000:
                 log.debug("ain't reading", "on_message::toolong")
                 await msg.reply(
-                    random.choices(
-                        (REACTION_IMGS["toolong"], REACTION_IMGS["essay"]),
-                        (3, 1)
-                    )[0],
+                    random.choices((REACTION_IMGS["toolong"], REACTION_IMGS["essay"]), (3, 1))[0],
                     mention_author=False,
                 )
 
@@ -410,7 +407,9 @@ class Tob(discord.Client):
                     )
 
                 elif command in REACTION_IMGS:
-                    return_list.append((msg.reply, {"content": REACTION_IMGS[command], "mention_author": False}))
+                    return_list.append(
+                        (msg.reply, {"content": REACTION_IMGS[command], "mention_author": False})
+                    )
 
                 else:
                     raise InvalidCommandError()
@@ -426,7 +425,9 @@ class Tob(discord.Client):
             log.debug(f'Commands: "{format_msg_full(msg)}"', "on_message::command")
             return return_list
 
-    def _handle_urlfix(self, msg: discord.Message, text: str) -> list[tuple[Callable[[], Any], dict[str, Any]]]:
+    def _handle_urlfix(
+        self, msg: discord.Message, text: str
+    ) -> list[tuple[Callable[[], Any], dict[str, Any]]]:
         log.debug(f"Replace: {format_msg_full(msg)}", "on_message::url")
         urls_replaced: list[str] = []
         _text = " ".join(text.split("\n"))
@@ -542,6 +543,11 @@ class Tob(discord.Client):
         else:
             log.debug(DATA_PATH + " doesn't exist, creating a new file", "_loadData")
             writef(DATA_PATH, INIT_DATA)
+
+        # Ensure cache sub-keys exist.
+        for key, default in INIT_DATA["cache"].items():
+            self.data["cache"].setdefault(key, default)
+
         log.debug(f"Loaded data:  {self.data}", "_loadData")
 
     def _setSeed(self) -> None:
@@ -596,7 +602,9 @@ class Tob(discord.Client):
     def _valid_message(self, msg: discord.Message) -> bool:
         ch_id = str(msg.channel.id)
         g_id = str(msg.guild.id) if msg.guild else ""
-        return (ch_id not in self.data["blocked_channels"]) and (ch_id in self.data["channels"] or g_id in self.data["guilds"])
+        return (ch_id not in self.data["blocked_channels"]) and (
+            ch_id in self.data["channels"] or g_id in self.data["guilds"]
+        )
 
     # TODO
     def _handle_invalid_command(self, msg: discord.Message) -> None:

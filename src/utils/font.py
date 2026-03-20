@@ -21,7 +21,9 @@ spacingwidth = 2
 lettersize = letterwidth * letterheight + spacingwidth * letterheight
 
 font = [
-    [line[i : i + letterwidth] for i in range(0, len(line), letterwidth + spacingwidth)] for line in font.split("\n") if line
+    [line[i : i + letterwidth] for i in range(0, len(line), letterwidth + spacingwidth)]
+    for line in font.split("\n")
+    if line
 ]
 
 
@@ -34,7 +36,11 @@ def niter(t, n: int):
         return
 
 
-font = [[lines[j][i] for j in range(letterheight)] for lines in niter(font, letterheight) for i in range(len(lines[0]))]
+font = [
+    [lines[j][i] for j in range(letterheight)]
+    for lines in niter(font, letterheight)
+    for i in range(len(lines[0]))
+]
 
 alphabet = "abcdefghijklmnopqrstuvwxyz"
 fontd = {a: font[i] for i, a in enumerate(alphabet)}
