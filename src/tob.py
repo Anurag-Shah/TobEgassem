@@ -6,7 +6,7 @@ import sys
 from timeit import default_timer as timer
 from typing import Any, Callable, TypedDict
 
-from datetime import datetime
+from datetime import datetime, timezone
 import aiohttp
 import discord
 
@@ -110,7 +110,7 @@ class Tob(discord.Client):
     # Contains blocked channels, cache etc
     data: Any = INIT_DATA
     failed_loading_data: bool = False
-    ai_message_context: list[tuple[float, str, str, str]]
+    ai_message_context: list[tuple[float, str, int, str, str]]
 
     def __init__(
         self,
@@ -173,7 +173,7 @@ class Tob(discord.Client):
         g_id = str(msg.guild.id) if isinstance(msg.guild, object) else ""
 
         log.trace(format_msg_full(msg), "on_message")
-        ai_context = self._get_ai_context(ch_id)
+        ai_context = await self._get_ai_context(msg, ch_id)
         self._record_ai_context(msg, text, ch_id)
 
         try:
@@ -660,18 +660,47 @@ class Tob(discord.Client):
         return query.strip()
 
     def _record_ai_context(self, msg: discord.Message, text: str, ch_id: str) -> None:
-        self.ai_message_context.append((timer(), ch_id, str(msg.author), text))
+        self.ai_message_context.append((timer(), ch_id, msg.id, str(msg.author), text))
         self._prune_ai_context()
 
     def _prune_ai_context(self) -> None:
         min_time = timer() - AI_CONTEXT_MAX_AGE_SECONDS
         self.ai_message_context = [x for x in self.ai_message_context if x[0] >= min_time]
 
-    def _get_ai_context(self, ch_id: str) -> str:
+    async def _get_ai_context(self, msg: discord.Message, ch_id: str) -> str:
         self._prune_ai_context()
         context = [x for x in self.ai_message_context if x[1] == ch_id]
+        if len(context) < AI_CONTEXT_MAX_MESSAGES:
+            context = await self._fetch_ai_context(msg, ch_id, context)
         context = context[-AI_CONTEXT_MAX_MESSAGES:]
-        return "\n".join(f"{author}: {content}" for _, _, author, content in context)
+        return "\n".join(f"{author}: {content}" for _, _, _, author, content in context)
+
+    async def _fetch_ai_context(
+        self,
+        msg: discord.Message,
+        ch_id: str,
+        context: list[tuple[float, str, int, str, str]],
+    ) -> list[tuple[float, str, int, str, str]]:
+        history = getattr(msg.channel, "history", None)
+        if not history:
+            return context
+
+        min_created_at = datetime.now(timezone.utc).timestamp() - AI_CONTEXT_MAX_AGE_SECONDS
+        seen = {x[2] for x in context}
+        fetched: list[tuple[float, str, int, str, str]] = []
+        try:
+            async for old_msg in history(limit=AI_CONTEXT_MAX_MESSAGES, before=msg):
+                created_at = old_msg.created_at.replace(tzinfo=timezone.utc).timestamp()
+                if created_at < min_created_at:
+                    break
+                if old_msg.id in seen or not old_msg.content:
+                    continue
+                fetched.append((timer(), ch_id, old_msg.id, str(old_msg.author), old_msg.content))
+        except (discord.Forbidden, discord.HTTPException) as e:
+            log.warn(e, "on_message::ai_context")
+            return context
+
+        return fetched[::-1] + context
 
     async def _get_ai_reply(self, query: str, author: str = "", context: str = "") -> str:
         if not self.openai_api_key:
