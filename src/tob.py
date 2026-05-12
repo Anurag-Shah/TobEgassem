@@ -7,6 +7,7 @@ from timeit import default_timer as timer
 from typing import Any, Callable, TypedDict
 
 from datetime import datetime
+import aiohttp
 import discord
 
 from utils.log import log
@@ -55,6 +56,9 @@ URL_REGEX = re.compile(
     re.I | re.M,
 )
 
+AI_TRIGGER = "@tob "
+AI_SYSTEM_PROMPT = "You're Tob, a friendly AI chatbot embedded in a Discord server."
+
 # ---------------------------------------------- Tob --------------------------------------------- #
 
 
@@ -85,6 +89,10 @@ class Tob(discord.Client):
     reply_to_invalid_command: bool
     # Whether to clear cache on exit
     clear_cache: bool
+    # OpenAI-compatible API settings
+    openai_api_key: str | None
+    openai_base_url: str
+    openai_model: str
     # Contains blocked channels, cache etc
     data: Any = INIT_DATA
     failed_loading_data: bool = False
@@ -99,6 +107,9 @@ class Tob(discord.Client):
         test: bool = False,
         reply_to_invalid_command: bool = False,
         clear_cache: bool = False,
+        openai_api_key: str | None = None,
+        openai_base_url: str = "https://api.openai.com/v1",
+        openai_model: str = "gpt-4o-mini",
     ) -> None:
         intents = discord.Intents().default()
         intents.message_content = True
@@ -113,6 +124,9 @@ class Tob(discord.Client):
         self.test = test
         self.reply_to_invalid_command = reply_to_invalid_command
         self.clear_cache = clear_cache
+        self.openai_api_key = openai_api_key
+        self.openai_base_url = openai_base_url.rstrip("/")
+        self.openai_model = openai_model
 
         self._loadData()
         self._setSeed()
@@ -149,6 +163,12 @@ class Tob(discord.Client):
                 if await_responses := self._handle_command(msg, text, ch_id, g_id):
                     for x in await_responses:
                         await x[0](**x[1])
+                return
+
+            # AI chat
+            if query := self._get_ai_query(msg, text):
+                log.debug(f"AI: {format_msg_full(msg)}", "on_message::ai")
+                await msg.reply(await self._get_ai_reply(query), mention_author=False)
                 return
 
             # Replace twitter.com and/or media.discordapp.net
@@ -598,6 +618,45 @@ class Tob(discord.Client):
             self.data["guilds"].remove(guild_id)
         self._save()
         return ret
+
+    def _get_ai_query(self, msg: discord.Message, text: str) -> str | None:
+        query = None
+        if text.lower().startswith(AI_TRIGGER):
+            query = text[len(AI_TRIGGER) :]
+        elif self.user:
+            for mention in (f"<@{self.user.id}> ", f"<@!{self.user.id}> "):
+                if text.startswith(mention):
+                    query = text[len(mention) :]
+                    break
+
+        if query is None or not query.strip():
+            return None
+        if not self.test and self.user and self.user not in getattr(msg, "mentions", []):
+            return None
+        return query.strip()
+
+    async def _get_ai_reply(self, query: str) -> str:
+        if not self.openai_api_key:
+            return "AI is not configured."
+
+        payload = {
+            "model": self.openai_model,
+            "messages": [
+                {"role": "system", "content": AI_SYSTEM_PROMPT},
+                {"role": "user", "content": query},
+            ],
+        }
+        headers = {"Authorization": f"Bearer {self.openai_api_key}"}
+        url = f"{self.openai_base_url}/chat/completions"
+
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload, headers=headers) as response:
+                if response.status >= 400:
+                    log.warn(await response.text(), "on_message::ai")
+                    return "AI request failed."
+                data = await response.json()
+
+        return data["choices"][0]["message"]["content"].strip()
 
     def _valid_message(self, msg: discord.Message) -> bool:
         ch_id = str(msg.channel.id)

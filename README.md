@@ -8,9 +8,10 @@
 - Reacts to certain keywords
 - Self promotion (of my youtube channel) 😎
 - Bruhngus
+- AI replies via an OpenAI-compatible API when Tob is tagged with `@tob <query>`
 
 ## Running the bot
-You will need to setup a discord bot, a twitter application, and get the correct tokens from those setup as environment variables (refer to `src/main.py` for the environment variables needed).
+You will need to setup a discord bot, a twitter application, and get the correct tokens from those setup as environment variables (refer to `src/main.py` for the environment variables needed). Set `OPENAI_API_KEY` to enable AI replies; `OPENAI_BASE_URL` and `OPENAI_MODEL` are optional.
 
 (For access to the running instance of the bot, please DM me on discord at `Sol_InvictusXLII#1306`).
 
