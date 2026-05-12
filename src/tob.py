@@ -93,6 +93,7 @@ class Tob(discord.Client):
     openai_api_key: str | None
     openai_base_url: str
     openai_model: str
+    openai_web_search: bool
     # Contains blocked channels, cache etc
     data: Any = INIT_DATA
     failed_loading_data: bool = False
@@ -110,6 +111,7 @@ class Tob(discord.Client):
         openai_api_key: str | None = None,
         openai_base_url: str = "https://api.openai.com/v1",
         openai_model: str = "gpt-4o-mini",
+        openai_web_search: bool = False,
     ) -> None:
         intents = discord.Intents().default()
         intents.message_content = True
@@ -127,6 +129,7 @@ class Tob(discord.Client):
         self.openai_api_key = openai_api_key
         self.openai_base_url = openai_base_url.rstrip("/")
         self.openai_model = openai_model
+        self.openai_web_search = openai_web_search
 
         self._loadData()
         self._setSeed()
@@ -646,6 +649,9 @@ class Tob(discord.Client):
                 {"role": "user", "content": query},
             ],
         }
+        if self.openai_web_search:
+            payload["tools"] = [{"type": "openrouter:web_search"}]
+
         headers = {"Authorization": f"Bearer {self.openai_api_key}"}
         url = f"{self.openai_base_url}/chat/completions"
 
