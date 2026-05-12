@@ -57,6 +57,8 @@ URL_REGEX = re.compile(
 )
 
 AI_TRIGGER = "@tob "
+AI_CONTEXT_MAX_AGE_SECONDS = 60 * 60
+AI_CONTEXT_MAX_MESSAGES = 50
 AI_SYSTEM_PROMPT = (
     "you're tob, a friendly ai chatbot embedded in a discord server. "
     "always reply in lowercase, like informal casual texts between teen/young adult "
@@ -108,6 +110,7 @@ class Tob(discord.Client):
     # Contains blocked channels, cache etc
     data: Any = INIT_DATA
     failed_loading_data: bool = False
+    ai_message_context: list[tuple[float, str, str]]
 
     def __init__(
         self,
@@ -141,6 +144,7 @@ class Tob(discord.Client):
         self.openai_base_url = openai_base_url.rstrip("/")
         self.openai_model = openai_model
         self.openai_web_search = openai_web_search
+        self.ai_message_context = []
 
         self._loadData()
         self._setSeed()
@@ -169,6 +173,8 @@ class Tob(discord.Client):
         g_id = str(msg.guild.id) if isinstance(msg.guild, object) else ""
 
         log.trace(format_msg_full(msg), "on_message")
+        ai_context = self._get_ai_context()
+        self._record_ai_context(msg, text)
 
         try:
             # Bot commands
@@ -183,7 +189,9 @@ class Tob(discord.Client):
             if query := self._get_ai_query(msg, text):
                 log.debug(f"AI: {format_msg_full(msg)}", "on_message::ai")
                 async with msg.channel.typing():
-                    await msg.reply(await self._get_ai_reply(query), mention_author=True)
+                    await msg.reply(
+                        await self._get_ai_reply(query, ai_context), mention_author=True
+                    )
                 return
 
             # Replace twitter.com and/or media.discordapp.net
@@ -650,15 +658,29 @@ class Tob(discord.Client):
             return None
         return query.strip()
 
-    async def _get_ai_reply(self, query: str) -> str:
+    def _record_ai_context(self, msg: discord.Message, text: str) -> None:
+        self.ai_message_context.append((timer(), str(msg.author), text))
+        self._get_ai_context()
+
+    def _get_ai_context(self) -> str:
+        min_time = timer() - AI_CONTEXT_MAX_AGE_SECONDS
+        self.ai_message_context = [x for x in self.ai_message_context if x[0] >= min_time]
+        context = self.ai_message_context[-AI_CONTEXT_MAX_MESSAGES:]
+        return "\n".join(f"{author}: {content}" for _, author, content in context)
+
+    async def _get_ai_reply(self, query: str, context: str = "") -> str:
         if not self.openai_api_key:
             return "AI is not configured."
+
+        content = query
+        if context:
+            content = f"recent server messages for context:\n{context}\n\nuser query:\n{query}"
 
         payload = {
             "model": self.openai_model,
             "messages": [
                 {"role": "system", "content": AI_SYSTEM_PROMPT},
-                {"role": "user", "content": query},
+                {"role": "user", "content": content},
             ],
         }
         if self.openai_web_search:
