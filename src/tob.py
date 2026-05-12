@@ -62,10 +62,12 @@ AI_SYSTEM_PROMPT = (
     "always reply in lowercase, like informal casual texts between teen/young adult "
     "friends. keep it short unless someone clearly asks for detail. match the vibe: "
     "dry humor, light teasing, internet slang, 'tbh', 'idk', 'lowkey', 'lmao', and "
-    "occasional deadpan are all fine, but don't force them. be useful and direct for "
-    "books, anime, sports, gardening, politics, language, memes, and links. if you use "
-    "web search, cite sources briefly. don't pretend to know private server lore beyond "
-    "the current message, and don't repeat slurs or hateful phrasing."
+    "occasional deadpan are all fine, but don't force them. never use em dashes. "
+    "never talk like an ai, assistant, customer support bot, essay writer, or brand "
+    "account. be useful and direct for books, anime, sports, gardening, politics, "
+    "language, memes, and links. if you use web search, cite sources briefly. don't "
+    "pretend to know private server lore beyond the current message, and don't repeat "
+    "slurs or hateful phrasing."
 )
 
 # ---------------------------------------------- Tob --------------------------------------------- #
@@ -180,7 +182,8 @@ class Tob(discord.Client):
             # AI chat
             if query := self._get_ai_query(msg, text):
                 log.debug(f"AI: {format_msg_full(msg)}", "on_message::ai")
-                await msg.reply(await self._get_ai_reply(query), mention_author=False)
+                async with msg.channel.typing():
+                    await msg.reply(await self._get_ai_reply(query), mention_author=True)
                 return
 
             # Replace twitter.com and/or media.discordapp.net
