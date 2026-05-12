@@ -110,7 +110,7 @@ class Tob(discord.Client):
     # Contains blocked channels, cache etc
     data: Any = INIT_DATA
     failed_loading_data: bool = False
-    ai_message_context: list[tuple[float, str, str]]
+    ai_message_context: list[tuple[float, str, str, str]]
 
     def __init__(
         self,
@@ -173,8 +173,8 @@ class Tob(discord.Client):
         g_id = str(msg.guild.id) if isinstance(msg.guild, object) else ""
 
         log.trace(format_msg_full(msg), "on_message")
-        ai_context = self._get_ai_context()
-        self._record_ai_context(msg, text)
+        ai_context = self._get_ai_context(ch_id)
+        self._record_ai_context(msg, text, ch_id)
 
         try:
             # Bot commands
@@ -190,7 +190,8 @@ class Tob(discord.Client):
                 log.debug(f"AI: {format_msg_full(msg)}", "on_message::ai")
                 async with msg.channel.typing():
                     await msg.reply(
-                        await self._get_ai_reply(query, ai_context), mention_author=True
+                        await self._get_ai_reply(query, str(msg.author), ai_context),
+                        mention_author=True,
                     )
                 return
 
@@ -658,23 +659,27 @@ class Tob(discord.Client):
             return None
         return query.strip()
 
-    def _record_ai_context(self, msg: discord.Message, text: str) -> None:
-        self.ai_message_context.append((timer(), str(msg.author), text))
-        self._get_ai_context()
+    def _record_ai_context(self, msg: discord.Message, text: str, ch_id: str) -> None:
+        self.ai_message_context.append((timer(), ch_id, str(msg.author), text))
+        self._prune_ai_context()
 
-    def _get_ai_context(self) -> str:
+    def _prune_ai_context(self) -> None:
         min_time = timer() - AI_CONTEXT_MAX_AGE_SECONDS
         self.ai_message_context = [x for x in self.ai_message_context if x[0] >= min_time]
-        context = self.ai_message_context[-AI_CONTEXT_MAX_MESSAGES:]
-        return "\n".join(f"{author}: {content}" for _, author, content in context)
 
-    async def _get_ai_reply(self, query: str, context: str = "") -> str:
+    def _get_ai_context(self, ch_id: str) -> str:
+        self._prune_ai_context()
+        context = [x for x in self.ai_message_context if x[1] == ch_id]
+        context = context[-AI_CONTEXT_MAX_MESSAGES:]
+        return "\n".join(f"{author}: {content}" for _, _, author, content in context)
+
+    async def _get_ai_reply(self, query: str, author: str = "", context: str = "") -> str:
         if not self.openai_api_key:
             return "AI is not configured."
 
-        content = query
+        content = f"<query author={author!r}>\n{query}\n</query>"
         if context:
-            content = f"recent server messages for context:\n{context}\n\nuser query:\n{query}"
+            content = f"<context>\n{context}\n</context>\n\n{content}"
 
         payload = {
             "model": self.openai_model,
