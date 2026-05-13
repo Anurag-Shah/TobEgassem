@@ -168,8 +168,8 @@ class Tob(discord.Client):
         log.info(f"Logged in as: {self.user}", "on_ready")
 
     async def on_message(self, msg: discord.Message) -> None:
-        # Dont respond to own messages or no message content
-        if not self.test and (msg.author == self.user or not msg.content):
+        # Dont respond to no message content
+        if not self.test and not msg.content:
             return
 
         text: str = msg.content
@@ -178,26 +178,34 @@ class Tob(discord.Client):
         g_id = str(msg.guild.id) if isinstance(msg.guild, object) else ""
 
         log.trace(format_msg_full(msg), "on_message")
-        ai_context = await self._get_ai_context(msg, ch_id)
-        self._record_ai_context(msg, text, ch_id)
+        if not self.test and msg.author == self.user:
+            self._record_ai_context(msg, text, ch_id)
+            return
 
         try:
+            # AI chat
+            if query := self._get_ai_query(msg, text):
+                log.debug(f"AI: {format_msg_full(msg)}", "on_message::ai")
+                ai_context = await self._get_ai_context(msg, ch_id)
+                self._record_ai_context(msg, text, ch_id)
+                async with msg.channel.typing():
+                    reply = await self._get_ai_reply(
+                        self._format_ai_text(msg, query),
+                        self._format_ai_author(msg.author),
+                        ai_context,
+                    )
+                    reply_msg = await msg.reply(reply, mention_author=True)
+                    self._record_ai_context(reply_msg, reply, ch_id)
+                return
+
+            self._record_ai_context(msg, text, ch_id)
+
             # Bot commands
             # TODO: Variable prefix
             if text.startswith("|"):
                 if await_responses := self._handle_command(msg, text, ch_id, g_id):
                     for x in await_responses:
                         await x[0](**x[1])
-                return
-
-            # AI chat
-            if query := self._get_ai_query(msg, text):
-                log.debug(f"AI: {format_msg_full(msg)}", "on_message::ai")
-                async with msg.channel.typing():
-                    await msg.reply(
-                        await self._get_ai_reply(query, str(msg.author), ai_context),
-                        mention_author=True,
-                    )
                 return
 
             # Replace twitter.com and/or media.discordapp.net
@@ -664,8 +672,70 @@ class Tob(discord.Client):
             return None
         return query.strip()
 
+    def _format_ai_author(self, author: Any) -> str:
+        username = str(author)
+        display_name = getattr(author, "display_name", None)
+        user_id = getattr(author, "id", None)
+        suffix = f" id={user_id}" if user_id else ""
+        if display_name and display_name != username:
+            return f"{username} ({display_name}{suffix})"
+        return f"{username} ({suffix.lstrip()})" if suffix else username
+
+    def _format_ai_text(self, msg: discord.Message, text: str) -> str:
+        for user in getattr(msg, "mentions", []):
+            author = self._format_ai_author(user)
+            text = text.replace(f"<@{user.id}>", f"@{author}")
+            text = text.replace(f"<@!{user.id}>", f"@{author}")
+
+        parts = []
+        reference = getattr(msg, "reference", None)
+        resolved = getattr(reference, "resolved", None) if reference else None
+        if resolved and isinstance(resolved, discord.Message):
+            parts.append(
+                f"replying_to: {self._format_ai_author(resolved.author)}: "
+                f"{self._format_ai_text(resolved, resolved.content)}"
+            )
+
+        if text:
+            parts.append(text)
+
+        attachments = []
+        for attachment in getattr(msg, "attachments", []):
+            url = getattr(attachment, "url", None)
+            if url:
+                attachments.append(url)
+        if attachments:
+            parts.append(f"attachments: {' '.join(attachments)}")
+        return "\n".join(parts)
+
+    def _format_ai_channel(self, channel: Any) -> str:
+        name = getattr(channel, "name", str(channel))
+        channel_id = getattr(channel, "id", None)
+        out = f"{name} id={channel_id}" if channel_id else str(name)
+        topic = getattr(channel, "topic", None)
+        if topic:
+            out = f"{out}\ntopic: {topic}"
+        return out
+
+    def _format_ai_guild(self, guild: Any) -> str:
+        if not guild:
+            return "dm"
+        name = getattr(guild, "name", str(guild))
+        guild_id = getattr(guild, "id", None)
+        return f"{name} id={guild_id}" if guild_id else str(name)
+
     def _record_ai_context(self, msg: discord.Message, text: str, ch_id: str) -> None:
-        self.ai_message_context.append((timer(), ch_id, msg.id, str(msg.author), text))
+        if any(x[2] == msg.id for x in self.ai_message_context):
+            return
+        self.ai_message_context.append(
+            (
+                timer(),
+                ch_id,
+                msg.id,
+                self._format_ai_author(msg.author),
+                self._format_ai_text(msg, text),
+            )
+        )
         self._prune_ai_context()
 
     def _prune_ai_context(self) -> None:
@@ -678,7 +748,18 @@ class Tob(discord.Client):
         if len(context) < AI_CONTEXT_MAX_MESSAGES:
             context = await self._fetch_ai_context(msg, ch_id, context)
         context = context[-AI_CONTEXT_MAX_MESSAGES:]
-        return "\n".join(f"{author}: {content}" for _, _, _, author, content in context)
+        messages = "\n".join(f"{author}: {content}" for _, _, _, author, content in context)
+        return f"""<context>
+<metadata>
+current_time: {datetime.now(timezone.utc).isoformat()}
+server: {self._format_ai_guild(msg.guild)}
+channel: {self._format_ai_channel(msg.channel)}
+</metadata>
+
+<messages>
+{messages}
+</messages>
+</context>"""
 
     async def _fetch_ai_context(
         self,
@@ -700,7 +781,15 @@ class Tob(discord.Client):
                     break
                 if old_msg.id in seen or not old_msg.content:
                     continue
-                fetched.append((timer(), ch_id, old_msg.id, str(old_msg.author), old_msg.content))
+                fetched.append(
+                    (
+                        timer(),
+                        ch_id,
+                        old_msg.id,
+                        self._format_ai_author(old_msg.author),
+                        self._format_ai_text(old_msg, old_msg.content),
+                    )
+                )
         except (discord.Forbidden, discord.HTTPException) as e:
             log.warn(e, "on_message::ai_context")
             return context
@@ -713,7 +802,7 @@ class Tob(discord.Client):
 
         content = f"<query author={author!r}>\n{query}\n</query>"
         if context:
-            content = f"<context>\n{context}\n</context>\n\n{content}"
+            content = f"{context}\n\n{content}"
 
         payload = {
             "model": self.openai_model,
