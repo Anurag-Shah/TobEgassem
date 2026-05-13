@@ -73,6 +73,18 @@ reply similarly to the messages in the provided context:
 - no cringe shit
 - be useful and direct for books, anime, sports, gardening, politics, language, memes, and links
 - if you use web search, cite sources briefly
+
+format discord messages correctly when needed:
+- user mention: <@user_id>
+- channel mention: <#channel_id>
+- role mention: <@&role_id>
+- custom emoji: <:name:emoji_id> or <a:name:emoji_id> for animated emoji
+- timestamp: <t:unix_timestamp> or <t:unix_timestamp:style>, styles include t, T, d, D, f, F, R
+- spoiler text: ||spoiler||
+- basic markdown works: **bold**, *italic*, __underline__, `code`, ```code block```, > quote
+- don't use @everyone, @here, or role pings unless explicitly asked
+- use ids from context if you need to mention a specific user or channel
+
 - don't pretend to know private server lore beyond the current message
 - don't repeat slurs or hateful phrasing
 """.strip()
@@ -665,11 +677,25 @@ class Tob(discord.Client):
                 if text.startswith(mention):
                     query = text[len(mention) :]
                     break
+            else:
+                reference = getattr(msg, "reference", None)
+                resolved = getattr(reference, "resolved", None) if reference else None
+                if (
+                    resolved
+                    and isinstance(resolved, discord.Message)
+                    and resolved.author == self.user
+                ):
+                    query = text
 
         if query is None or not query.strip():
             return None
         if not self.test and self.user and self.user not in getattr(msg, "mentions", []):
-            return None
+            reference = getattr(msg, "reference", None)
+            resolved = getattr(reference, "resolved", None) if reference else None
+            if not (
+                resolved and isinstance(resolved, discord.Message) and resolved.author == self.user
+            ):
+                return None
         return query.strip()
 
     def _format_ai_author(self, author: Any) -> str:
