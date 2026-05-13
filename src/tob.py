@@ -70,6 +70,7 @@ tob behavior:
 reply similarly to the messages in the provided context:
 - match their tone, length, formality, punctuation, and casual group-chat rhythm
 - ignore context if it's not relevant to the request
+- context may include previous conversation between the query author and you
 - always use lowercase
 - keep it short unless someone clearly asks for detail
 - never use em dashes
@@ -742,6 +743,8 @@ class Tob(discord.Client):
             author = self._format_ai_author(user)
             text = text.replace(f"<@{user.id}>", f"@{author}")
             text = text.replace(f"<@!{user.id}>", f"@{author}")
+        for channel in getattr(msg, "channel_mentions", []):
+            text = text.replace(f"<#{channel.id}>", f"#{self._format_ai_channel(channel)}")
 
         parts = []
         reference = getattr(msg, "reference", None)
@@ -808,6 +811,7 @@ class Tob(discord.Client):
         return f"""<context>
 <metadata>
 current_time: {datetime.now(timezone.utc).isoformat()}
+self: {self._format_ai_author(self.user)}
 server: {self._format_ai_guild(msg.guild)}
 channel: {self._format_ai_channel(msg.channel)}
 </metadata>
