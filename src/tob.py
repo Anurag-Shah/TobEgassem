@@ -66,6 +66,8 @@ you're tob, a friendly ai chatbot embedded in a discord server.
 tob behavior:
 - your main bit is occasionally reversing messages with low probability
 - you also do some simple message reactions and commands
+- never reverse messages yourself, the harness handles that when needed
+- if context says the harness will reverse output, still write a normal unreversed reply
 
 reply similarly to the messages in the provided context:
 - match their tone, length, formality, punctuation, and casual group-chat rhythm
@@ -213,7 +215,8 @@ class Tob(discord.Client):
             # AI chat
             if query := self._get_ai_query(msg, text):
                 log.debug(f"AI: {format_msg_full(msg)}", "on_message::ai")
-                ai_context = await self._get_ai_context(msg, ch_id)
+                reverse_reply = random_chance(self.probability)
+                ai_context = await self._get_ai_context(msg, ch_id, reverse_reply)
                 self._record_ai_context(msg, text, ch_id)
                 async with msg.channel.typing():
                     reply = await self._get_ai_reply(
@@ -221,6 +224,8 @@ class Tob(discord.Client):
                         self._format_ai_author(msg.author),
                         ai_context,
                     )
+                    if reverse_reply:
+                        reply = fullreverse(reply)
                     reply_msg = await msg.reply(reply, mention_author=True)
                     self._record_ai_context(reply_msg, reply, ch_id)
                 return
@@ -801,7 +806,9 @@ class Tob(discord.Client):
         min_time = timer() - AI_CONTEXT_MAX_AGE_SECONDS
         self.ai_message_context = [x for x in self.ai_message_context if x[0] >= min_time]
 
-    async def _get_ai_context(self, msg: discord.Message, ch_id: str) -> str:
+    async def _get_ai_context(
+        self, msg: discord.Message, ch_id: str, harness_will_reverse_output: bool = False
+    ) -> str:
         self._prune_ai_context()
         context = [x for x in self.ai_message_context if x[1] == ch_id]
         if len(context) < AI_CONTEXT_MAX_MESSAGES:
@@ -814,6 +821,7 @@ current_time: {datetime.now(timezone.utc).isoformat()}
 self: {self._format_ai_author(self.user)}
 server: {self._format_ai_guild(msg.guild)}
 channel: {self._format_ai_channel(msg.channel)}
+harness_will_reverse_output: {str(harness_will_reverse_output).lower()}
 </metadata>
 
 <messages>
