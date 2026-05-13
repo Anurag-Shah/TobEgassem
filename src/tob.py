@@ -1,4 +1,5 @@
 from os.path import exists
+import asyncio
 import random
 import re
 import signal
@@ -60,7 +61,12 @@ AI_TRIGGER = "@tob "
 AI_CONTEXT_MAX_AGE_SECONDS = 60 * 60
 AI_CONTEXT_MAX_MESSAGES = 50
 AI_SYSTEM_PROMPT = """
-you're tob, a friendly ai chatbot embedded in a discord server. Your primary purpose is to occasionally reverse messages with a low probability, as well as some message reaction commands, and as an LLM, you should always reply with your messages fully reversed
+you're tob, a friendly ai chatbot embedded in a discord server.
+
+tob behavior:
+- your main bit is occasionally reversing messages with low probability
+- you also do some simple message reactions and commands
+- as the ai chat part of tob, always reply with your message fully reversed
 
 reply similarly to the messages in the provided context:
 - match their tone, length, formality, punctuation, and casual group-chat rhythm
@@ -128,6 +134,9 @@ class Tob(discord.Client):
     data: Any = INIT_DATA
     failed_loading_data: bool = False
     ai_message_context: list[tuple[float, str, int, str, str]]
+    active_messages: int
+    shutting_down: bool
+    shutdown_waiter: asyncio.Event | None
 
     def __init__(
         self,
@@ -162,6 +171,9 @@ class Tob(discord.Client):
         self.openai_model = openai_model
         self.openai_web_search = openai_web_search
         self.ai_message_context = []
+        self.active_messages = 0
+        self.shutting_down = False
+        self.shutdown_waiter = None
 
         self._loadData()
         self._setSeed()
@@ -183,6 +195,8 @@ class Tob(discord.Client):
         # Dont respond to no message content
         if not self.test and not msg.content:
             return
+        if self.shutting_down:
+            return
 
         text: str = msg.content
         text_lower = text.lower()
@@ -194,6 +208,7 @@ class Tob(discord.Client):
             self._record_ai_context(msg, text, ch_id)
             return
 
+        self.active_messages += 1
         try:
             # AI chat
             if query := self._get_ai_query(msg, text):
@@ -282,6 +297,10 @@ class Tob(discord.Client):
             log.warn(e, "on_message")
         except Exception as e:  # also discord.NotFound, discord.HTTPException
             log.error(e, "on_message")
+        finally:
+            self.active_messages -= 1
+            if self.shutting_down and self.active_messages == 0 and self.shutdown_waiter:
+                self.shutdown_waiter.set()
 
     # TODO: Command framework
     def _handle_command(
@@ -576,11 +595,23 @@ class Tob(discord.Client):
 
     def _handle_ctrlc(self, sig: signal.Signals, frame: Any) -> None:
         print()  # \n
-        log.info("Received SIGINT, exiting...", "_handle_ctrlc")
+        if self.shutting_down:
+            log.warn("Received SIGINT again, forcing exit...", "_handle_ctrlc")
+            sys.exit(1)
+
+        log.info("Received SIGINT, waiting for active messages...", "_handle_ctrlc")
+        self.shutting_down = True
+        self.loop.create_task(self._shutdown())
+
+    async def _shutdown(self) -> None:
+        if self.active_messages > 0:
+            self.shutdown_waiter = asyncio.Event()
+            await self.shutdown_waiter.wait()
+
         if self.clear_cache:
             self._clear_cache()
-            log.info("Cleared cache", "_handle_ctrlc")
-        sys.exit(0)
+            log.info("Cleared cache", "_shutdown")
+        await self.close()
 
     # ------------------------------------------- Utils ------------------------------------------ #
 
