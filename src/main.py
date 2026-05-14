@@ -20,6 +20,7 @@ def main():
     env_arg(args, "REPLY_TO_INVALID_COMMAND", "reply_to_invalid_command", default=False)
     env_arg(args, "LOG_COLOR", "log_color", default=False)
     env_arg(args, "CLEAR_CACHE", "clear_cache", default=False)
+    args["enable_ai"] = to_bool(os.getenv("ENABLE_AI", False))
     args["openai_api_key"] = os.getenv("OPENAI_API_KEY")
     env_arg(args, "OPENAI_BASE_URL", "openai_base_url", default="https://api.openai.com/v1")
     env_arg(args, "OPENAI_MODEL", "openai_model", default="gpt-4o-mini")

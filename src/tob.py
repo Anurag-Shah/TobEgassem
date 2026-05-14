@@ -58,6 +58,7 @@ URL_REGEX = re.compile(
 )
 
 AI_TRIGGER = "@tob "
+AI_ADMIN_USER_IDS = {302516756256391168}
 AI_CONTEXT_MAX_AGE_SECONDS = 60 * 60
 AI_CONTEXT_MAX_MESSAGES = 50
 AI_SYSTEM_PROMPT = """
@@ -128,6 +129,7 @@ class Tob(discord.Client):
     # Whether to clear cache on exit
     clear_cache: bool
     # OpenAI-compatible API settings
+    enable_ai: bool
     openai_api_key: str | None
     openai_base_url: str
     openai_model: str
@@ -150,6 +152,7 @@ class Tob(discord.Client):
         test: bool = False,
         reply_to_invalid_command: bool = False,
         clear_cache: bool = False,
+        enable_ai: bool = False,
         openai_api_key: str | None = None,
         openai_base_url: str = "https://api.openai.com/v1",
         openai_model: str = "gpt-4o-mini",
@@ -168,6 +171,7 @@ class Tob(discord.Client):
         self.test = test
         self.reply_to_invalid_command = reply_to_invalid_command
         self.clear_cache = clear_cache
+        self.enable_ai = enable_ai
         self.openai_api_key = openai_api_key
         self.openai_base_url = openai_base_url.rstrip("/")
         self.openai_model = openai_model
@@ -214,6 +218,31 @@ class Tob(discord.Client):
         try:
             # AI chat
             if query := self._get_ai_query(msg, text):
+                if query.lower() in ("ai enable", "ai disable"):
+                    if not self._is_admin(msg):
+                        log.debug("Ignoring AI command from non-admin", "on_message::ai")
+                        return
+                    if query.lower() == "ai enable" and not self.openai_api_key:
+                        log.debug(
+                            "Ignoring AI enable command because OPENAI_API_KEY is not set",
+                            "on_message::ai",
+                        )
+                        return
+                    self.enable_ai = query.lower() == "ai enable"
+                    await msg.reply(
+                        f"ai {'enabled' if self.enable_ai else 'disabled'}", mention_author=True
+                    )
+                    return
+
+                if not self.enable_ai:
+                    log.debug("Ignoring AI prompt because AI is disabled", "on_message::ai")
+                    return
+                if not self.openai_api_key:
+                    log.debug(
+                        "Ignoring AI prompt because OPENAI_API_KEY is not set", "on_message::ai"
+                    )
+                    return
+
                 log.debug(f"AI: {format_msg_full(msg)}", "on_message::ai")
                 reverse_reply = random_chance(self.probability)
                 ai_context = await self._get_ai_context(msg, ch_id, reverse_reply)
@@ -704,6 +733,9 @@ class Tob(discord.Client):
         self._save()
         return ret
 
+    def _is_admin(self, msg: discord.Message) -> bool:
+        return getattr(getattr(msg, "author", None), "id", None) in AI_ADMIN_USER_IDS
+
     def _get_ai_query(self, msg: discord.Message, text: str) -> str | None:
         query = None
         if text.lower().startswith(AI_TRIGGER):
@@ -865,9 +897,6 @@ harness_will_reverse_output: {str(harness_will_reverse_output).lower()}
         return fetched[::-1] + context
 
     async def _get_ai_reply(self, query: str, author: str = "", context: str = "") -> str:
-        if not self.openai_api_key:
-            return "AI is not configured."
-
         content = f"<query author={author!r}>\n{query}\n</query>"
         if context:
             content = f"{context}\n\n{content}"
@@ -882,7 +911,11 @@ harness_will_reverse_output: {str(harness_will_reverse_output).lower()}
         if self.openai_web_search:
             payload["tools"] = [{"type": "openrouter:web_search"}]
 
-        headers = {"Authorization": f"Bearer {self.openai_api_key}"}
+        headers = {
+            "Authorization": f"Bearer {self.openai_api_key}",
+            "HTTP-Referer": "https://github.com/Anurag-Shah/TobEgassem",
+            "X-Title": "TobEgassem",
+        }
         url = f"{self.openai_base_url}/chat/completions"
 
         async with aiohttp.ClientSession() as session:
