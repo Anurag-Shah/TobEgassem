@@ -1,5 +1,6 @@
 from os.path import exists
 import asyncio
+import json
 import random
 import re
 import signal
@@ -61,6 +62,12 @@ AI_TRIGGER = "@tob "
 AI_ADMIN_USER_IDS = {302516756256391168}
 AI_CONTEXT_MAX_AGE_SECONDS = 60 * 60
 AI_CONTEXT_MAX_MESSAGES = 50
+AI_REQUEST_FAILED = "AI request failed."
+AI_REQUEST_MAX_ATTEMPTS = 3
+AI_REQUEST_TIMEOUT_SECONDS = 45
+AI_RETRY_DELAY_SECONDS = 1
+AI_RETRY_MAX_DELAY_SECONDS = 15
+DISCORD_MESSAGE_MAX_LENGTH = 2000
 AI_SYSTEM_PROMPT = """
 you're tob, a friendly ai chatbot embedded in a discord server.
 
@@ -244,19 +251,30 @@ class Tob(discord.Client):
                     return
 
                 log.debug(f"AI: {format_msg_full(msg)}", "on_message::ai")
-                reverse_reply = random_chance(self.probability)
-                ai_context = await self._get_ai_context(msg, ch_id, reverse_reply)
-                self._record_ai_context(msg, text, ch_id)
-                async with msg.channel.typing():
-                    reply = await self._get_ai_reply(
-                        self._format_ai_text(msg, query),
-                        self._format_ai_author(msg.author),
-                        ai_context,
-                    )
-                    if reverse_reply:
-                        reply = fullreverse(reply)
-                    reply_msg = await msg.reply(reply, mention_author=True)
-                    self._record_ai_context(reply_msg, reply, ch_id)
+                try:
+                    reverse_reply = random_chance(self.probability)
+                    ai_context = await self._get_ai_context(msg, ch_id, reverse_reply)
+                    self._record_ai_context(msg, text, ch_id)
+                    async with msg.channel.typing():
+                        reply = await self._get_ai_reply(
+                            self._format_ai_text(msg, query),
+                            self._format_ai_author(msg.author),
+                            ai_context,
+                        )
+                        if reverse_reply and reply != AI_REQUEST_FAILED:
+                            reply = fullreverse(reply)
+                        for reply_msg in await self._send_discord_reply_chain(msg, reply):
+                            self._record_ai_context(reply_msg, reply_msg.content, ch_id)
+                except Exception as e:
+                    log.error(e, "on_message::ai")
+                    try:
+                        await msg.reply(AI_REQUEST_FAILED, mention_author=True)
+                    except (
+                        discord.Forbidden,
+                        discord.DiscordServerError,
+                        discord.HTTPException,
+                    ) as e:
+                        log.warn(e, "on_message::ai")
                 return
 
             self._record_ai_context(msg, text, ch_id)
@@ -738,13 +756,13 @@ class Tob(discord.Client):
 
     def _get_ai_query(self, msg: discord.Message, text: str) -> str | None:
         query = None
-        if text.lower().startswith(AI_TRIGGER):
-            query = text[len(AI_TRIGGER) :]
+        trigger = re.match(rf"{re.escape(AI_TRIGGER.rstrip())}\s+", text, re.I)
+        if trigger:
+            query = text[trigger.end() :]
         elif self.user:
-            for mention in (f"<@{self.user.id}> ", f"<@!{self.user.id}> "):
-                if text.startswith(mention):
-                    query = text[len(mention) :]
-                    break
+            mention = re.match(rf"<@!?{self.user.id}>\s+", text)
+            if mention:
+                query = text[mention.end() :]
             else:
                 reference = getattr(msg, "reference", None)
                 resolved = getattr(reference, "resolved", None) if reference else None
@@ -908,24 +926,148 @@ harness_will_reverse_output: {str(harness_will_reverse_output).lower()}
                 {"role": "user", "content": content},
             ],
         }
-        if self.openai_web_search:
-            payload["tools"] = [{"type": "openrouter:web_search"}]
-
         headers = {
             "Authorization": f"Bearer {self.openai_api_key}",
             "HTTP-Referer": "https://github.com/Anurag-Shah/TobEgassem",
             "X-Title": "TobEgassem",
         }
         url = f"{self.openai_base_url}/chat/completions"
+        if self.openai_web_search:
+            payload["tools"] = [{"type": "openrouter:web_search"}]
+        timeout = aiohttp.ClientTimeout(total=AI_REQUEST_TIMEOUT_SECONDS)
 
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            for attempt in range(1, AI_REQUEST_MAX_ATTEMPTS + 1):
+                reply, retry_after = await self._request_ai_reply(session, url, payload, headers)
+                if reply:
+                    return reply
+                if attempt == AI_REQUEST_MAX_ATTEMPTS:
+                    break
+
+                delay = self._get_ai_retry_delay(attempt, retry_after)
+                log.warn(
+                    f"AI request failed, retrying in {delay:.1f}s "
+                    f"({attempt}/{AI_REQUEST_MAX_ATTEMPTS})",
+                    "on_message::ai",
+                )
+                await asyncio.sleep(delay)
+
+        return AI_REQUEST_FAILED
+
+    async def _request_ai_reply(
+        self,
+        session: aiohttp.ClientSession,
+        url: str,
+        payload: dict[str, Any],
+        headers: dict[str, str],
+    ) -> tuple[str | None, float | None]:
+        try:
             async with session.post(url, json=payload, headers=headers) as response:
+                text = await response.text()
+                retry_after = self._parse_ai_retry_after(text, response.headers)
                 if response.status >= 400:
-                    log.warn(await response.text(), "on_message::ai")
-                    return "AI request failed."
-                data = await response.json()
+                    log.warn(text, "on_message::ai")
+                    return None, retry_after
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            log.warn(f"AI request error: {e}", "on_message::ai")
+            return None, None
 
-        return data["choices"][0]["message"]["content"].strip()
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            log.warn(f"AI response was not JSON: {text}", "on_message::ai")
+            return None, None
+
+        reply = self._extract_ai_reply(data)
+        if reply:
+            return reply, None
+
+        log.warn(f"AI response missing content: {text}", "on_message::ai")
+        return None, self._parse_ai_retry_after(text)
+
+    def _extract_ai_reply(self, data: Any) -> str | None:
+        if not isinstance(data, dict):
+            return None
+        choices = data.get("choices")
+        if not isinstance(choices, list) or not choices:
+            return None
+        choice = choices[0]
+        if not isinstance(choice, dict):
+            return None
+        message = choice.get("message")
+        if not isinstance(message, dict):
+            return None
+        content = message.get("content")
+        if isinstance(content, str):
+            return content.strip() or None
+        if isinstance(content, list):
+            parts = []
+            for part in content:
+                if isinstance(part, dict) and isinstance(part.get("text"), str):
+                    parts.append(part["text"])
+            return "".join(parts).strip() or None
+        return None
+
+    def _parse_ai_retry_after(self, text: str, headers: Any | None = None) -> float | None:
+        if headers:
+            retry_after = headers.get("Retry-After")
+            if retry_after:
+                try:
+                    return float(retry_after)
+                except ValueError:
+                    pass
+
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(data, dict):
+            return None
+        error = data.get("error")
+        if not isinstance(error, dict):
+            return None
+        metadata = error.get("metadata", {})
+        if not isinstance(metadata, dict):
+            return None
+        retry_after = metadata.get("retry_after_seconds")
+        if isinstance(retry_after, int | float):
+            return float(retry_after)
+        return None
+
+    def _get_ai_retry_delay(self, attempt: int, retry_after: float | None) -> float:
+        if retry_after is None:
+            retry_after = AI_RETRY_DELAY_SECONDS * 2 ** (attempt - 1)
+        return min(retry_after, AI_RETRY_MAX_DELAY_SECONDS)
+
+    async def _send_discord_reply_chain(
+        self, msg: discord.Message, reply: str
+    ) -> list[discord.Message]:
+        reply_msgs = []
+        previous_msg = msg
+        for chunk in self._split_discord_reply(reply):
+            reply_msg = await previous_msg.reply(chunk, mention_author=not reply_msgs)
+            reply_msgs.append(reply_msg)
+            previous_msg = reply_msg
+        return reply_msgs
+
+    def _split_discord_reply(self, reply: str) -> list[str]:
+        chunks = []
+        reply = reply.strip()
+        while len(reply) > DISCORD_MESSAGE_MAX_LENGTH:
+            split_at = reply.rfind("\n", 0, DISCORD_MESSAGE_MAX_LENGTH + 1)
+            if split_at <= 0:
+                split_at = reply.rfind(" ", 0, DISCORD_MESSAGE_MAX_LENGTH + 1)
+            if split_at <= 0:
+                split_at = DISCORD_MESSAGE_MAX_LENGTH
+
+            chunk = reply[:split_at].rstrip()
+            if chunk:
+                chunks.append(chunk)
+            reply = reply[split_at:].lstrip()
+
+        if reply:
+            chunks.append(reply)
+        return chunks or [""]
 
     def _valid_message(self, msg: discord.Message) -> bool:
         ch_id = str(msg.channel.id)

@@ -4,7 +4,7 @@ from typing import Any
 from dotenv import load_dotenv
 import discord
 
-from src.tob import Tob
+from src.tob import AI_REQUEST_FAILED, DISCORD_MESSAGE_MAX_LENGTH, Tob
 from src.utils.utils import *
 from src.utils.log import *
 
@@ -83,6 +83,102 @@ class TestTob:
 
         _, o = self.tob._handle_urlfix(msg, content)[0]
         assert o["content"] == expected
+
+    def test_ai_query_accepts_whitespace_after_trigger(self):
+        msg = get_message("@tob\nhello")
+
+        assert self.tob._get_ai_query(msg, msg.content) == "hello"
+
+    def test_ai_reply_retries_missing_content(self, monkeypatch):
+        calls = 0
+
+        async def request_ai_reply(*_args, **_kwargs):
+            nonlocal calls
+            calls += 1
+            if calls < 3:
+                return None, None
+            return "ok", None
+
+        async def sleep(_delay):
+            pass
+
+        monkeypatch.setattr(self.tob, "_request_ai_reply", request_ai_reply)
+        monkeypatch.setattr(asyncio, "sleep", sleep)
+        self.tob.openai_web_search = False
+
+        assert asyncio.run(self.tob._get_ai_reply("hello")) == "ok"
+        assert calls == 3
+
+    def test_ai_reply_always_passes_web_search_capability(self):
+        payloads = []
+
+        async def request_ai_reply(_session, _url, payload, _headers):
+            payloads.append(payload)
+            return "ok", None
+
+        old_request_ai_reply = self.tob._request_ai_reply
+        old_openai_web_search = self.tob.openai_web_search
+        try:
+            self.tob._request_ai_reply = request_ai_reply
+            self.tob.openai_web_search = True
+
+            assert asyncio.run(self.tob._get_ai_reply("hello")) == "ok"
+            assert payloads
+            assert all("tools" in payload for payload in payloads)
+        finally:
+            self.tob._request_ai_reply = old_request_ai_reply
+            self.tob.openai_web_search = old_openai_web_search
+
+    def test_ai_reply_missing_choices_returns_error(self, monkeypatch):
+        async def request_ai_reply(*_args, **_kwargs):
+            return None, None
+
+        monkeypatch.setattr(self.tob, "_request_ai_reply", request_ai_reply)
+        self.tob.openai_web_search = False
+
+        assert asyncio.run(self.tob._get_ai_reply("hello")) == AI_REQUEST_FAILED
+
+    def test_split_discord_reply_prefers_word_boundaries(self):
+        reply = "x" * 1999 + " " + "hello"
+        chunks = self.tob._split_discord_reply(reply)
+
+        assert chunks == ["x" * 1999, "hello"]
+        assert all(len(chunk) <= DISCORD_MESSAGE_MAX_LENGTH for chunk in chunks)
+
+    def test_split_discord_reply_splits_long_words(self):
+        chunks = self.tob._split_discord_reply("x" * 2001)
+
+        assert chunks == ["x" * 2000, "x"]
+        assert all(len(chunk) <= DISCORD_MESSAGE_MAX_LENGTH for chunk in chunks)
+
+    def test_send_discord_reply_chain_replies_to_previous_message(self):
+        class Message:
+            messages = []
+
+            def __init__(self, content=""):
+                self.content = content
+                self.replies = []
+
+            async def reply(self, content, mention_author):
+                reply = Message(content)
+                self.replies.append((reply, mention_author))
+                Message.messages.append(reply)
+                return reply
+
+        msg = Message()
+        chunks = ["first", "second", "third"]
+        old_split_discord_reply = self.tob._split_discord_reply
+        try:
+            self.tob._split_discord_reply = lambda _reply: chunks
+            replies = asyncio.run(self.tob._send_discord_reply_chain(msg, "ignored"))
+        finally:
+            self.tob._split_discord_reply = old_split_discord_reply
+
+        assert replies == Message.messages
+        assert [reply.content for reply in replies] == chunks
+        assert msg.replies == [(replies[0], True)]
+        assert replies[0].replies == [(replies[1], False)]
+        assert replies[1].replies == [(replies[2], False)]
 
     def test_reverse(self):
         assert fullreverse("hello world") == "dlrow olleh"
