@@ -4,7 +4,7 @@ from typing import Any
 from dotenv import load_dotenv
 import discord
 
-from src.tob import AI_REQUEST_FAILED, Tob
+from src.tob import AI_REQUEST_FAILED, DISCORD_MESSAGE_MAX_LENGTH, Tob
 from src.utils.utils import *
 from src.utils.log import *
 
@@ -138,11 +138,47 @@ class TestTob:
 
         assert asyncio.run(self.tob._get_ai_reply("hello")) == AI_REQUEST_FAILED
 
-    def test_ai_reply_truncates_discord_messages(self):
-        reply = self.tob._format_discord_reply("x" * 2001)
+    def test_split_discord_reply_prefers_word_boundaries(self):
+        reply = "x" * 1999 + " " + "hello"
+        chunks = self.tob._split_discord_reply(reply)
 
-        assert len(reply) == 2000
-        assert reply.endswith("…")
+        assert chunks == ["x" * 1999, "hello"]
+        assert all(len(chunk) <= DISCORD_MESSAGE_MAX_LENGTH for chunk in chunks)
+
+    def test_split_discord_reply_splits_long_words(self):
+        chunks = self.tob._split_discord_reply("x" * 2001)
+
+        assert chunks == ["x" * 2000, "x"]
+        assert all(len(chunk) <= DISCORD_MESSAGE_MAX_LENGTH for chunk in chunks)
+
+    def test_send_discord_reply_chain_replies_to_previous_message(self):
+        class Message:
+            messages = []
+
+            def __init__(self, content=""):
+                self.content = content
+                self.replies = []
+
+            async def reply(self, content, mention_author):
+                reply = Message(content)
+                self.replies.append((reply, mention_author))
+                Message.messages.append(reply)
+                return reply
+
+        msg = Message()
+        chunks = ["first", "second", "third"]
+        old_split_discord_reply = self.tob._split_discord_reply
+        try:
+            self.tob._split_discord_reply = lambda _reply: chunks
+            replies = asyncio.run(self.tob._send_discord_reply_chain(msg, "ignored"))
+        finally:
+            self.tob._split_discord_reply = old_split_discord_reply
+
+        assert replies == Message.messages
+        assert [reply.content for reply in replies] == chunks
+        assert msg.replies == [(replies[0], True)]
+        assert replies[0].replies == [(replies[1], False)]
+        assert replies[1].replies == [(replies[2], False)]
 
     def test_reverse(self):
         assert fullreverse("hello world") == "dlrow olleh"

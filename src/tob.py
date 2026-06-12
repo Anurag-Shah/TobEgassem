@@ -263,9 +263,8 @@ class Tob(discord.Client):
                         )
                         if reverse_reply and reply != AI_REQUEST_FAILED:
                             reply = fullreverse(reply)
-                        reply = self._format_discord_reply(reply)
-                        reply_msg = await msg.reply(reply, mention_author=True)
-                        self._record_ai_context(reply_msg, reply, ch_id)
+                        for reply_msg in await self._send_discord_reply_chain(msg, reply):
+                            self._record_ai_context(reply_msg, reply_msg.content, ch_id)
                 except Exception as e:
                     log.error(e, "on_message::ai")
                     try:
@@ -1040,10 +1039,35 @@ harness_will_reverse_output: {str(harness_will_reverse_output).lower()}
             retry_after = AI_RETRY_DELAY_SECONDS * 2 ** (attempt - 1)
         return min(retry_after, AI_RETRY_MAX_DELAY_SECONDS)
 
-    def _format_discord_reply(self, reply: str) -> str:
-        if len(reply) <= DISCORD_MESSAGE_MAX_LENGTH:
-            return reply
-        return reply[: DISCORD_MESSAGE_MAX_LENGTH - 1] + "…"
+    async def _send_discord_reply_chain(
+        self, msg: discord.Message, reply: str
+    ) -> list[discord.Message]:
+        reply_msgs = []
+        previous_msg = msg
+        for chunk in self._split_discord_reply(reply):
+            reply_msg = await previous_msg.reply(chunk, mention_author=not reply_msgs)
+            reply_msgs.append(reply_msg)
+            previous_msg = reply_msg
+        return reply_msgs
+
+    def _split_discord_reply(self, reply: str) -> list[str]:
+        chunks = []
+        reply = reply.strip()
+        while len(reply) > DISCORD_MESSAGE_MAX_LENGTH:
+            split_at = reply.rfind("\n", 0, DISCORD_MESSAGE_MAX_LENGTH + 1)
+            if split_at <= 0:
+                split_at = reply.rfind(" ", 0, DISCORD_MESSAGE_MAX_LENGTH + 1)
+            if split_at <= 0:
+                split_at = DISCORD_MESSAGE_MAX_LENGTH
+
+            chunk = reply[:split_at].rstrip()
+            if chunk:
+                chunks.append(chunk)
+            reply = reply[split_at:].lstrip()
+
+        if reply:
+            chunks.append(reply)
+        return chunks or [""]
 
     def _valid_message(self, msg: discord.Message) -> bool:
         ch_id = str(msg.channel.id)
