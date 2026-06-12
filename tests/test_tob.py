@@ -4,7 +4,7 @@ from typing import Any
 from dotenv import load_dotenv
 import discord
 
-from src.tob import Tob
+from src.tob import AI_REQUEST_FAILED, Tob
 from src.utils.utils import *
 from src.utils.log import *
 
@@ -83,6 +83,71 @@ class TestTob:
 
         _, o = self.tob._handle_urlfix(msg, content)[0]
         assert o["content"] == expected
+
+    def test_ai_query_accepts_whitespace_after_trigger(self):
+        msg = get_message("@tob\nhello")
+
+        assert self.tob._get_ai_query(msg, msg.content) == "hello"
+
+    def test_ai_reply_retries_missing_content(self, monkeypatch):
+        calls = 0
+
+        async def request_ai_reply(*_args, **_kwargs):
+            nonlocal calls
+            calls += 1
+            if calls < 3:
+                return None, True, None
+            return "ok", False, None
+
+        async def sleep(_delay):
+            pass
+
+        monkeypatch.setattr(self.tob, "_request_ai_reply", request_ai_reply)
+        monkeypatch.setattr(asyncio, "sleep", sleep)
+        self.tob.openai_web_search = False
+
+        assert asyncio.run(self.tob._get_ai_reply("hello")) == "ok"
+        assert calls == 3
+
+    def test_ai_reply_falls_back_without_web_search(self):
+        calls = []
+
+        async def request_ai_reply(_session, _url, payload, _headers):
+            calls.append("tools" in payload)
+            if "tools" in payload:
+                return None, False, None
+            return "ok", False, None
+
+        old_request_ai_reply = self.tob._request_ai_reply
+        old_openai_web_search = self.tob.openai_web_search
+        try:
+            self.tob._request_ai_reply = request_ai_reply
+            self.tob.openai_web_search = True
+
+            assert asyncio.run(self.tob._get_ai_reply("source for hello")) == "ok"
+            assert calls == [True, False]
+        finally:
+            self.tob._request_ai_reply = old_request_ai_reply
+            self.tob.openai_web_search = old_openai_web_search
+
+    def test_ai_web_search_only_for_search_queries(self):
+        assert self.tob._should_use_web_search("source for hello")
+        assert not self.tob._should_use_web_search("hello")
+
+    def test_ai_reply_missing_choices_returns_error(self, monkeypatch):
+        async def request_ai_reply(*_args, **_kwargs):
+            return None, False, None
+
+        monkeypatch.setattr(self.tob, "_request_ai_reply", request_ai_reply)
+        self.tob.openai_web_search = False
+
+        assert asyncio.run(self.tob._get_ai_reply("hello")) == AI_REQUEST_FAILED
+
+    def test_ai_reply_truncates_discord_messages(self):
+        reply = self.tob._format_discord_reply("x" * 2001)
+
+        assert len(reply) == 2000
+        assert reply.endswith("…")
 
     def test_reverse(self):
         assert fullreverse("hello world") == "dlrow olleh"

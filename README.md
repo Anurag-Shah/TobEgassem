@@ -11,7 +11,7 @@
 - AI replies via an OpenAI-compatible API when Tob is tagged with `@tob <query>`
 
 ## Running the bot
-You will need to setup a discord bot, a twitter application, and get the correct tokens from those setup as environment variables (refer to `src/main.py` for the environment variables needed). Set `ENABLE_AI=true` and `OPENAI_API_KEY` to enable AI replies; `OPENAI_BASE_URL` and `OPENAI_MODEL` are optional. Set `OPENAI_WEB_SEARCH=true` with OpenRouter to allow Tob to browse the web via OpenRouter's `openrouter:web_search` server tool.
+You will need to setup a discord bot, a twitter application, and get the correct tokens from those setup as environment variables (refer to `src/main.py` for the environment variables needed). Set `ENABLE_AI=true` and `OPENAI_API_KEY` to enable AI replies; `OPENAI_BASE_URL` and `OPENAI_MODEL` are optional. Set `OPENAI_WEB_SEARCH=true` with OpenRouter to allow Tob to browse the web via OpenRouter's `openrouter:web_search` server tool for prompts that look like they need current information. Web search is retried and then automatically retried without the tool if the provider fails.
 
 (For access to the running instance of the bot, please DM me on discord at `Sol_InvictusXLII#1306`).
 
