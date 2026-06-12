@@ -96,8 +96,8 @@ class TestTob:
             nonlocal calls
             calls += 1
             if calls < 3:
-                return None, True, None
-            return "ok", False, None
+                return None, None
+            return "ok", None
 
         async def sleep(_delay):
             pass
@@ -109,14 +109,12 @@ class TestTob:
         assert asyncio.run(self.tob._get_ai_reply("hello")) == "ok"
         assert calls == 3
 
-    def test_ai_reply_falls_back_without_web_search(self):
-        calls = []
+    def test_ai_reply_always_passes_web_search_capability(self):
+        payloads = []
 
         async def request_ai_reply(_session, _url, payload, _headers):
-            calls.append("tools" in payload)
-            if "tools" in payload:
-                return None, False, None
-            return "ok", False, None
+            payloads.append(payload)
+            return "ok", None
 
         old_request_ai_reply = self.tob._request_ai_reply
         old_openai_web_search = self.tob.openai_web_search
@@ -124,19 +122,16 @@ class TestTob:
             self.tob._request_ai_reply = request_ai_reply
             self.tob.openai_web_search = True
 
-            assert asyncio.run(self.tob._get_ai_reply("source for hello")) == "ok"
-            assert calls == [True, False]
+            assert asyncio.run(self.tob._get_ai_reply("hello")) == "ok"
+            assert payloads
+            assert all("tools" in payload for payload in payloads)
         finally:
             self.tob._request_ai_reply = old_request_ai_reply
             self.tob.openai_web_search = old_openai_web_search
 
-    def test_ai_web_search_only_for_search_queries(self):
-        assert self.tob._should_use_web_search("source for hello")
-        assert not self.tob._should_use_web_search("hello")
-
     def test_ai_reply_missing_choices_returns_error(self, monkeypatch):
         async def request_ai_reply(*_args, **_kwargs):
-            return None, False, None
+            return None, None
 
         monkeypatch.setattr(self.tob, "_request_ai_reply", request_ai_reply)
         self.tob.openai_web_search = False

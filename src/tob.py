@@ -67,7 +67,6 @@ AI_REQUEST_MAX_ATTEMPTS = 3
 AI_REQUEST_TIMEOUT_SECONDS = 45
 AI_RETRY_DELAY_SECONDS = 1
 AI_RETRY_MAX_DELAY_SECONDS = 15
-AI_RETRY_STATUS_CODES = {408, 409, 425, 429, 500, 502, 503, 504}
 DISCORD_MESSAGE_MAX_LENGTH = 2000
 AI_SYSTEM_PROMPT = """
 you're tob, a friendly ai chatbot embedded in a discord server.
@@ -934,56 +933,27 @@ harness_will_reverse_output: {str(harness_will_reverse_output).lower()}
             "X-Title": "TobEgassem",
         }
         url = f"{self.openai_base_url}/chat/completions"
-        use_web_search = self.openai_web_search and self._should_use_web_search(query)
-        search_modes = [True, False] if use_web_search else [False]
+        if self.openai_web_search:
+            payload["tools"] = [{"type": "openrouter:web_search"}]
         timeout = aiohttp.ClientTimeout(total=AI_REQUEST_TIMEOUT_SECONDS)
 
         async with aiohttp.ClientSession(timeout=timeout) as session:
-            for use_web_search in search_modes:
-                attempt_payload = payload.copy()
-                if use_web_search:
-                    attempt_payload["tools"] = [{"type": "openrouter:web_search"}]
+            for attempt in range(1, AI_REQUEST_MAX_ATTEMPTS + 1):
+                reply, retry_after = await self._request_ai_reply(session, url, payload, headers)
+                if reply:
+                    return reply
+                if attempt == AI_REQUEST_MAX_ATTEMPTS:
+                    break
 
-                for attempt in range(1, AI_REQUEST_MAX_ATTEMPTS + 1):
-                    reply, retryable, retry_after = await self._request_ai_reply(
-                        session, url, attempt_payload, headers
-                    )
-                    if reply:
-                        return reply
-                    if not retryable or attempt == AI_REQUEST_MAX_ATTEMPTS:
-                        break
-
-                    delay = self._get_ai_retry_delay(attempt, retry_after)
-                    log.warn(
-                        f"AI request failed, retrying in {delay:.1f}s "
-                        f"({attempt}/{AI_REQUEST_MAX_ATTEMPTS})",
-                        "on_message::ai",
-                    )
-                    await asyncio.sleep(delay)
-
-                if use_web_search:
-                    log.warn("AI web search failed, retrying without it", "on_message::ai")
+                delay = self._get_ai_retry_delay(attempt, retry_after)
+                log.warn(
+                    f"AI request failed, retrying in {delay:.1f}s "
+                    f"({attempt}/{AI_REQUEST_MAX_ATTEMPTS})",
+                    "on_message::ai",
+                )
+                await asyncio.sleep(delay)
 
         return AI_REQUEST_FAILED
-
-    def _should_use_web_search(self, query: str) -> bool:
-        query_lower = query.lower()
-        return bool(URL_REGEX.search(query)) or any(
-            phrase in query_lower
-            for phrase in (
-                "current",
-                "latest",
-                "recent",
-                "today",
-                "search",
-                "look up",
-                "google",
-                "source",
-                "cite",
-                "who won",
-                "what happened",
-            )
-        )
 
     async def _request_ai_reply(
         self,
@@ -991,30 +961,30 @@ harness_will_reverse_output: {str(harness_will_reverse_output).lower()}
         url: str,
         payload: dict[str, Any],
         headers: dict[str, str],
-    ) -> tuple[str | None, bool, float | None]:
+    ) -> tuple[str | None, float | None]:
         try:
             async with session.post(url, json=payload, headers=headers) as response:
                 text = await response.text()
                 retry_after = self._parse_ai_retry_after(text, response.headers)
                 if response.status >= 400:
                     log.warn(text, "on_message::ai")
-                    return None, response.status in AI_RETRY_STATUS_CODES, retry_after
+                    return None, retry_after
         except (aiohttp.ClientError, asyncio.TimeoutError) as e:
             log.warn(f"AI request error: {e}", "on_message::ai")
-            return None, True, None
+            return None, None
 
         try:
             data = json.loads(text)
         except json.JSONDecodeError:
             log.warn(f"AI response was not JSON: {text}", "on_message::ai")
-            return None, True, None
+            return None, None
 
         reply = self._extract_ai_reply(data)
         if reply:
-            return reply, False, None
+            return reply, None
 
         log.warn(f"AI response missing content: {text}", "on_message::ai")
-        return None, self._ai_response_is_retryable(data), self._parse_ai_retry_after(text)
+        return None, self._parse_ai_retry_after(text)
 
     def _extract_ai_reply(self, data: Any) -> str | None:
         if not isinstance(data, dict):
@@ -1038,15 +1008,6 @@ harness_will_reverse_output: {str(harness_will_reverse_output).lower()}
                     parts.append(part["text"])
             return "".join(parts).strip() or None
         return None
-
-    def _ai_response_is_retryable(self, data: Any) -> bool:
-        if not isinstance(data, dict):
-            return True
-        error = data.get("error")
-        if not isinstance(error, dict):
-            return True
-        code = error.get("code")
-        return code in AI_RETRY_STATUS_CODES
 
     def _parse_ai_retry_after(self, text: str, headers: Any | None = None) -> float | None:
         if headers:
