@@ -1,5 +1,6 @@
 from os.path import exists
 import asyncio
+import html
 import json
 import random
 import re
@@ -144,7 +145,7 @@ class Tob(discord.Client):
     # Contains blocked channels, cache etc
     data: Any = INIT_DATA
     failed_loading_data: bool = False
-    ai_message_context: list[tuple[float, str, int, str, str]]
+    ai_message_context: list[tuple[float, str, int, str, str, str, str]]
     active_messages: int
     shutting_down: bool
     shutdown_waiter: asyncio.Event | None
@@ -784,18 +785,30 @@ class Tob(discord.Client):
                 return None
         return query.strip()
 
-    def _format_ai_author(self, author: Any) -> str:
-        username = str(author)
-        display_name = getattr(author, "display_name", None)
+    def _format_ai_author(self, author: Any, include_extra: bool = True) -> str:
+        _, display_name, extra = self._get_ai_author_info(author)
+        if include_extra and extra:
+            return f"{display_name} ({extra})"
+        return display_name
+
+    def _get_ai_author_info(self, author: Any) -> tuple[str, str, str]:
         user_id = getattr(author, "id", None)
-        suffix = f" id={user_id}" if user_id else ""
-        if display_name and display_name != username:
-            return f"{username} ({display_name}{suffix})"
-        return f"{username} ({suffix.lstrip()})" if suffix else username
+        username = self._strip_discriminator(getattr(author, "name", None) or str(author))
+        display_name = self._strip_discriminator(getattr(author, "display_name", None) or username)
+        key = str(user_id) if user_id else display_name
+        extras = []
+        if username != display_name:
+            extras.append(username)
+        if user_id:
+            extras.append(f"id={user_id}")
+        return key, display_name, " ".join(extras)
+
+    def _strip_discriminator(self, name: str) -> str:
+        return re.sub(r"#\d{4}$", "", name)
 
     def _format_ai_text(self, msg: discord.Message, text: str) -> str:
         for user in getattr(msg, "mentions", []):
-            author = self._format_ai_author(user)
+            author = self._format_ai_author(user, include_extra=False)
             text = text.replace(f"<@{user.id}>", f"@{author}")
             text = text.replace(f"<@!{user.id}>", f"@{author}")
         for channel in getattr(msg, "channel_mentions", []):
@@ -846,7 +859,7 @@ class Tob(discord.Client):
                 timer(),
                 ch_id,
                 msg.id,
-                self._format_ai_author(msg.author),
+                *self._get_ai_author_info(msg.author),
                 self._format_ai_text(msg, text),
             )
         )
@@ -864,7 +877,7 @@ class Tob(discord.Client):
         if len(context) < AI_CONTEXT_MAX_MESSAGES:
             context = await self._fetch_ai_context(msg, ch_id, context)
         context = context[-AI_CONTEXT_MAX_MESSAGES:]
-        messages = "\n".join(f"{author}: {content}" for _, _, _, author, content in context)
+        messages = self._format_ai_context_messages(context)
         return f"""<context>
 <metadata>
 current_time: {datetime.now(timezone.utc).isoformat()}
@@ -879,19 +892,38 @@ harness_will_reverse_output: {str(harness_will_reverse_output).lower()}
 </messages>
 </context>"""
 
+    def _format_ai_context_messages(
+        self, context: list[tuple[float, str, int, str, str, str, str]]
+    ) -> str:
+        seen_authors = set()
+        messages = []
+        for _, _, message_id, author_key, display_name, extra, content in context:
+            include_extra = author_key not in seen_authors
+            seen_authors.add(author_key)
+            author = display_name
+            if include_extra and extra:
+                author = f"{display_name} ({extra})"
+            messages.append(
+                f'<message id="{html.escape(str(message_id), quote=True)}" '
+                f'author="{html.escape(author, quote=True)}">\n'
+                f"{html.escape(content)}\n"
+                f"</message>"
+            )
+        return "\n".join(messages)
+
     async def _fetch_ai_context(
         self,
         msg: discord.Message,
         ch_id: str,
-        context: list[tuple[float, str, int, str, str]],
-    ) -> list[tuple[float, str, int, str, str]]:
+        context: list[tuple[float, str, int, str, str, str, str]],
+    ) -> list[tuple[float, str, int, str, str, str, str]]:
         history = getattr(msg.channel, "history", None)
         if not history:
             return context
 
         min_created_at = datetime.now(timezone.utc).timestamp() - AI_CONTEXT_MAX_AGE_SECONDS
         seen = {x[2] for x in context}
-        fetched: list[tuple[float, str, int, str, str]] = []
+        fetched: list[tuple[float, str, int, str, str, str, str]] = []
         try:
             async for old_msg in history(limit=AI_CONTEXT_MAX_MESSAGES, before=msg):
                 created_at = old_msg.created_at.replace(tzinfo=timezone.utc).timestamp()
@@ -904,7 +936,7 @@ harness_will_reverse_output: {str(harness_will_reverse_output).lower()}
                         timer(),
                         ch_id,
                         old_msg.id,
-                        self._format_ai_author(old_msg.author),
+                        *self._get_ai_author_info(old_msg.author),
                         self._format_ai_text(old_msg, old_msg.content),
                     )
                 )

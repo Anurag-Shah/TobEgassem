@@ -89,6 +89,42 @@ class TestTob:
 
         assert self.tob._get_ai_query(msg, msg.content) == "hello"
 
+    def test_ai_mentions_use_display_name_without_discriminator(self):
+        class User:
+            id = 123
+            name = "username"
+            display_name = "display"
+
+            def __str__(self):
+                return "username#1234"
+
+        class Message:
+            mentions = [User()]
+            channel_mentions = []
+            attachments = []
+            reference = None
+
+        assert (
+            self.tob._format_ai_text(Message(), "hi <@123> and <@!123>")
+            == "hi @display and @display"
+        )
+
+    def test_ai_context_messages_use_extra_author_info_once(self):
+        context = [
+            (1.0, "channel", 1, "123", "display", "username id=123", "hello <world>"),
+            (2.0, "channel", 2, "123", "display", "username id=123", "again"),
+            (3.0, "channel", 3, "456", "other", "id=456", "bye"),
+        ]
+
+        messages = self.tob._format_ai_context_messages(context)
+
+        assert (
+            '<message id="1" author="display (username id=123)">\nhello &lt;world&gt;\n</message>'
+            in messages
+        )
+        assert '<message id="2" author="display">\nagain\n</message>' in messages
+        assert '<message id="3" author="other (id=456)">\nbye\n</message>' in messages
+
     def test_ai_reply_retries_missing_content(self, monkeypatch):
         calls = 0
 
