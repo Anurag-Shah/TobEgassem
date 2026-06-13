@@ -15,7 +15,7 @@ You will need to setup a discord bot, a twitter application, and get the correct
 
 (For access to the running instance of the bot, please DM me on discord at `Sol_InvictusXLII#1306`).
 
-You will also need a python 3.8 or higher installation.
+Install dependencies with `uv sync` and run with `uv run python src/main.py`. Run tests with `uv run pytest`.
 
 ## Contributing
 Please fork the repository and document your changes in the pull request.

@@ -1,5 +1,5 @@
 import asyncio
-from typing import Any
+import os
 
 from dotenv import load_dotenv
 import discord
@@ -27,7 +27,7 @@ def get_message(content: str) -> discord.Message:
 
 
 class TestTob:
-    tob = Tob(twitter_tokens=env("TWITTER_TOKENS"), test=True, log_level=5)
+    tob = Tob(twitter_tokens=os.getenv("TWITTER_TOKENS", "a;b;c;d"), test=True, log_level=5)
     # Pre-populate cache to avoid hitting the Twitter API.
     tob.data["cache"]["is_twitter_video"]["1553120835686252544"] = False
     tob.data["cache"]["is_twitter_video"]["1553479370383171584"] = True

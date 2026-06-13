@@ -1,21 +1,35 @@
-[tool.poetry]
+[project]
 name = "tob"
 version = "1.0.0"
 description = "Tob is a discord bot that reverses 1/69 messages."
 license = "MIT"
-authors = ["Anurag Shah <anuragshah2000@gmail.com>", "DaniPopes <danipopes1@proton.me>"]
+authors = [
+  { name = "Anurag Shah", email = "anuragshah2000@gmail.com" },
+  { name = "DaniPopes", email = "danipopes1@proton.me" },
+]
 readme = "README.md"
-homepage = "https://github.com/Anurag-Shah/TobEgassem"
-repository = "https://github.com/Anurag-Shah/TobEgassem"
+requires-python = ">=3.10"
 keywords = ["discord", "bot"]
+dependencies = [
+  "aiohttp>=3.9,<4",
+  "colorama>=0.4,<0.5",
+  "discord>=2.0,<3",
+  "python-dotenv>=0.21,<2",
+  "tweepy>=4.10,<5",
+]
 
-[tool.poetry.dependencies]
-python = "^3.10"
-aiohttp = "^3.9.0"
-colorama = "^0.4.5"
-discord = "^2.0.0"
-python-dotenv = "^0.21.0"
-tweepy = "^4.10.1"
+[project.urls]
+Homepage = "https://github.com/Anurag-Shah/TobEgassem"
+Repository = "https://github.com/Anurag-Shah/TobEgassem"
+
+[dependency-groups]
+dev = [
+  "black>=25.0",
+  "pytest>=9.0",
+]
+
+[tool.uv]
+package = false
 
 [tool.black]
 line-length = 100
@@ -40,7 +54,3 @@ exclude = '''
 
 [tool.pytest.ini_options]
 pythonpath = [".", "src"]
-
-[build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
