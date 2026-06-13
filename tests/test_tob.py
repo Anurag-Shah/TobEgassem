@@ -4,7 +4,7 @@ from typing import Any
 from dotenv import load_dotenv
 import discord
 
-from src.tob import AI_REQUEST_FAILED, DISCORD_MESSAGE_MAX_LENGTH, Tob
+from src.tob import AI_REQUEST_FAILED, DISCORD_MESSAGE_MAX_LENGTH, AiContextMessage, Tob
 from src.utils.utils import *
 from src.utils.log import *
 
@@ -89,6 +89,100 @@ class TestTob:
 
         assert self.tob._get_ai_query(msg, msg.content) == "hello"
 
+    def test_ai_mentions_use_display_name_without_discriminator(self):
+        class User:
+            id = 123
+            name = "username"
+            display_name = "display"
+
+            def __str__(self):
+                return "username#1234"
+
+        class Message:
+            mentions = [User()]
+            channel_mentions = []
+            attachments = []
+            reference = None
+
+        assert (
+            self.tob._format_ai_text(Message(), "hi <@123> and <@!123>")
+            == "hi @display and @display"
+        )
+
+    def test_ai_context_messages_use_extra_author_info_once(self):
+        context = [
+            AiContextMessage(
+                1.0, "channel", 1, "123", "display", "username id=123", "hello <world>"
+            ),
+            AiContextMessage(2.0, "channel", 2, "123", "display", "username id=123", "again"),
+            AiContextMessage(3.0, "channel", 3, "456", "other", "id=456", "bye"),
+        ]
+
+        messages = self.tob._format_ai_context_messages(context)
+
+        assert (
+            '<message id="1" author="display (username id=123)">\nhello &lt;world&gt;\n</message>'
+            in messages
+        )
+        assert '<message id="2" author="display">\nagain\n</message>' in messages
+        assert '<message id="3" author="other (id=456)">\nbye\n</message>' in messages
+
+    def test_ai_context_removes_deleted_messages(self):
+        self.tob.ai_message_context = [
+            AiContextMessage(1.0, "channel", 1, "author", "author", "", "one"),
+            AiContextMessage(2.0, "channel", 2, "author", "author", "", "two"),
+            AiContextMessage(3.0, "channel", 3, "author", "author", "", "three"),
+        ]
+
+        self.tob._remove_ai_context_message(2)
+        assert [x.message_id for x in self.tob.ai_message_context] == [1, 3]
+
+        self.tob._remove_ai_context_messages({1, 3})
+        assert self.tob.ai_message_context == []
+
+    def test_ai_context_updates_edited_messages(self):
+        class Message:
+            id = 1
+            author = "author"
+            mentions = []
+            channel_mentions = []
+            attachments = []
+            reference = None
+
+        self.tob.ai_message_context = [
+            AiContextMessage(1.0, "channel", 1, "author", "author", "", "old")
+        ]
+
+        self.tob._update_ai_context_message(Message(), "new <text>")
+
+        assert self.tob.ai_message_context == [
+            AiContextMessage(1.0, "channel", 1, "author", "author", "", "new <text>")
+        ]
+
+    def test_ai_context_places_stable_metadata_before_messages(self):
+        class Message:
+            guild = "guild"
+            channel = "channel"
+
+        self.tob.ai_message_context = [
+            AiContextMessage(1.0, "channel", 1, "author", "author", "", "old")
+        ]
+
+        context = asyncio.run(self.tob._get_ai_context(Message(), "channel"))
+
+        assert context.index("<metadata>") < context.index("<messages>")
+        assert "current_time:" not in context
+        assert "harness_will_reverse_output:" not in context
+
+    def test_ai_request_places_volatile_metadata_after_context(self):
+        context = "<context>\n<messages>old</messages>\n</context>"
+
+        content = self.tob._format_ai_request_content("hi", "author", context, True)
+
+        assert content.startswith(context)
+        assert content.index("current_time:") > content.index("</context>")
+        assert "harness_will_reverse_output: true" in content
+
     def test_ai_reply_retries_missing_content(self, monkeypatch):
         calls = 0
 
@@ -128,6 +222,28 @@ class TestTob:
         finally:
             self.tob._request_ai_reply = old_request_ai_reply
             self.tob.openai_web_search = old_openai_web_search
+
+    def test_ai_reply_sends_session_id(self):
+        payloads = []
+
+        async def request_ai_reply(_session, _url, payload, _headers):
+            payloads.append(payload)
+            return "ok", None
+
+        old_request_ai_reply = self.tob._request_ai_reply
+        try:
+            self.tob._request_ai_reply = request_ai_reply
+
+            assert (
+                asyncio.run(self.tob._get_ai_reply("hello", session_id="discord-channel-123"))
+                == "ok"
+            )
+            assert payloads[0]["session_id"] == "discord-channel-123"
+        finally:
+            self.tob._request_ai_reply = old_request_ai_reply
+
+    def test_ai_session_id_is_bounded(self):
+        assert len(self.tob._get_ai_session_id("x" * 300)) == 256
 
     def test_ai_reply_missing_choices_returns_error(self, monkeypatch):
         async def request_ai_reply(*_args, **_kwargs):

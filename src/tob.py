@@ -1,5 +1,7 @@
 from os.path import exists
 import asyncio
+from dataclasses import dataclass
+import html
 import json
 import random
 import re
@@ -119,6 +121,17 @@ class InvalidCommandError(Exception):
     pass
 
 
+@dataclass
+class AiContextMessage:
+    created_at: float
+    channel_id: str
+    message_id: int
+    author_key: str
+    display_name: str
+    author_extra: str
+    content: str
+
+
 class Tob(discord.Client):
     # TODO: Docsify this to __init__ (also these are not class variables)
     # Start time, to time ready seconds
@@ -144,7 +157,7 @@ class Tob(discord.Client):
     # Contains blocked channels, cache etc
     data: Any = INIT_DATA
     failed_loading_data: bool = False
-    ai_message_context: list[tuple[float, str, int, str, str]]
+    ai_message_context: list[AiContextMessage]
     active_messages: int
     shutting_down: bool
     shutdown_waiter: asyncio.Event | None
@@ -195,6 +208,9 @@ class Tob(discord.Client):
             # Register event handlers
             self.event(self.on_ready)
             self.event(self.on_message)
+            self.event(self.on_message_edit)
+            self.event(self.on_raw_message_delete)
+            self.event(self.on_raw_bulk_message_delete)
             signal.signal(signal.SIGINT, self._handle_ctrlc)  # type: ignore
 
     # -------------------------------------- Event Handlers -------------------------------------- #
@@ -203,6 +219,18 @@ class Tob(discord.Client):
         elapsed = timer() - self.start_time
         log.info("Ready after:  {:.3f}s".format(elapsed), "on_ready")
         log.info(f"Logged in as: {self.user}", "on_ready")
+
+    async def on_message_edit(self, before: discord.Message, after: discord.Message) -> None:
+        if not after.content:
+            self._remove_ai_context_message(after.id)
+            return
+        self._update_ai_context_message(after, after.content)
+
+    async def on_raw_message_delete(self, payload: discord.RawMessageDeleteEvent) -> None:
+        self._remove_ai_context_message(payload.message_id)
+
+    async def on_raw_bulk_message_delete(self, payload: discord.RawBulkMessageDeleteEvent) -> None:
+        self._remove_ai_context_messages(payload.message_ids)
 
     async def on_message(self, msg: discord.Message) -> None:
         # Dont respond to no message content
@@ -253,13 +281,15 @@ class Tob(discord.Client):
                 log.debug(f"AI: {format_msg_full(msg)}", "on_message::ai")
                 try:
                     reverse_reply = random_chance(self.probability)
-                    ai_context = await self._get_ai_context(msg, ch_id, reverse_reply)
+                    ai_context = await self._get_ai_context(msg, ch_id)
                     self._record_ai_context(msg, text, ch_id)
                     async with msg.channel.typing():
                         reply = await self._get_ai_reply(
                             self._format_ai_text(msg, query),
                             self._format_ai_author(msg.author),
                             ai_context,
+                            reverse_reply,
+                            self._get_ai_session_id(ch_id),
                         )
                         if reverse_reply and reply != AI_REQUEST_FAILED:
                             reply = fullreverse(reply)
@@ -784,18 +814,30 @@ class Tob(discord.Client):
                 return None
         return query.strip()
 
-    def _format_ai_author(self, author: Any) -> str:
-        username = str(author)
-        display_name = getattr(author, "display_name", None)
+    def _format_ai_author(self, author: Any, include_extra: bool = True) -> str:
+        _, display_name, extra = self._get_ai_author_info(author)
+        if include_extra and extra:
+            return f"{display_name} ({extra})"
+        return display_name
+
+    def _get_ai_author_info(self, author: Any) -> tuple[str, str, str]:
         user_id = getattr(author, "id", None)
-        suffix = f" id={user_id}" if user_id else ""
-        if display_name and display_name != username:
-            return f"{username} ({display_name}{suffix})"
-        return f"{username} ({suffix.lstrip()})" if suffix else username
+        username = self._strip_discriminator(getattr(author, "name", None) or str(author))
+        display_name = self._strip_discriminator(getattr(author, "display_name", None) or username)
+        key = str(user_id) if user_id else display_name
+        extras = []
+        if username != display_name:
+            extras.append(username)
+        if user_id:
+            extras.append(f"id={user_id}")
+        return key, display_name, " ".join(extras)
+
+    def _strip_discriminator(self, name: str) -> str:
+        return re.sub(r"#\d{4}$", "", name)
 
     def _format_ai_text(self, msg: discord.Message, text: str) -> str:
         for user in getattr(msg, "mentions", []):
-            author = self._format_ai_author(user)
+            author = self._format_ai_author(user, include_extra=False)
             text = text.replace(f"<@{user.id}>", f"@{author}")
             text = text.replace(f"<@!{user.id}>", f"@{author}")
         for channel in getattr(msg, "channel_mentions", []):
@@ -839,39 +881,56 @@ class Tob(discord.Client):
         return f"{name} id={guild_id}" if guild_id else str(name)
 
     def _record_ai_context(self, msg: discord.Message, text: str, ch_id: str) -> None:
-        if any(x[2] == msg.id for x in self.ai_message_context):
+        if any(x.message_id == msg.id for x in self.ai_message_context):
             return
+        author_key, display_name, author_extra = self._get_ai_author_info(msg.author)
         self.ai_message_context.append(
-            (
-                timer(),
-                ch_id,
-                msg.id,
-                self._format_ai_author(msg.author),
-                self._format_ai_text(msg, text),
+            AiContextMessage(
+                created_at=timer(),
+                channel_id=ch_id,
+                message_id=msg.id,
+                author_key=author_key,
+                display_name=display_name,
+                author_extra=author_extra,
+                content=self._format_ai_text(msg, text),
             )
         )
         self._prune_ai_context()
 
+    def _update_ai_context_message(self, msg: discord.Message, text: str) -> None:
+        for context_msg in self.ai_message_context:
+            if context_msg.message_id == msg.id:
+                author_key, display_name, author_extra = self._get_ai_author_info(msg.author)
+                context_msg.author_key = author_key
+                context_msg.display_name = display_name
+                context_msg.author_extra = author_extra
+                context_msg.content = self._format_ai_text(msg, text)
+                return
+
+    def _remove_ai_context_message(self, msg_id: int) -> None:
+        self.ai_message_context = [x for x in self.ai_message_context if x.message_id != msg_id]
+
+    def _remove_ai_context_messages(self, msg_ids: set[int]) -> None:
+        self.ai_message_context = [
+            x for x in self.ai_message_context if x.message_id not in msg_ids
+        ]
+
     def _prune_ai_context(self) -> None:
         min_time = timer() - AI_CONTEXT_MAX_AGE_SECONDS
-        self.ai_message_context = [x for x in self.ai_message_context if x[0] >= min_time]
+        self.ai_message_context = [x for x in self.ai_message_context if x.created_at >= min_time]
 
-    async def _get_ai_context(
-        self, msg: discord.Message, ch_id: str, harness_will_reverse_output: bool = False
-    ) -> str:
+    async def _get_ai_context(self, msg: discord.Message, ch_id: str) -> str:
         self._prune_ai_context()
-        context = [x for x in self.ai_message_context if x[1] == ch_id]
+        context = [x for x in self.ai_message_context if x.channel_id == ch_id]
         if len(context) < AI_CONTEXT_MAX_MESSAGES:
             context = await self._fetch_ai_context(msg, ch_id, context)
         context = context[-AI_CONTEXT_MAX_MESSAGES:]
-        messages = "\n".join(f"{author}: {content}" for _, _, _, author, content in context)
+        messages = self._format_ai_context_messages(context)
         return f"""<context>
 <metadata>
-current_time: {datetime.now(timezone.utc).isoformat()}
 self: {self._format_ai_author(self.user)}
 server: {self._format_ai_guild(msg.guild)}
 channel: {self._format_ai_channel(msg.channel)}
-harness_will_reverse_output: {str(harness_will_reverse_output).lower()}
 </metadata>
 
 <messages>
@@ -879,19 +938,36 @@ harness_will_reverse_output: {str(harness_will_reverse_output).lower()}
 </messages>
 </context>"""
 
+    def _format_ai_context_messages(self, context: list[AiContextMessage]) -> str:
+        seen_authors = set()
+        messages = []
+        for context_msg in context:
+            include_extra = context_msg.author_key not in seen_authors
+            seen_authors.add(context_msg.author_key)
+            author = context_msg.display_name
+            if include_extra and context_msg.author_extra:
+                author = f"{context_msg.display_name} ({context_msg.author_extra})"
+            messages.append(
+                f'<message id="{html.escape(str(context_msg.message_id), quote=True)}" '
+                f'author="{html.escape(author, quote=True)}">\n'
+                f"{html.escape(context_msg.content)}\n"
+                f"</message>"
+            )
+        return "\n".join(messages)
+
     async def _fetch_ai_context(
         self,
         msg: discord.Message,
         ch_id: str,
-        context: list[tuple[float, str, int, str, str]],
-    ) -> list[tuple[float, str, int, str, str]]:
+        context: list[AiContextMessage],
+    ) -> list[AiContextMessage]:
         history = getattr(msg.channel, "history", None)
         if not history:
             return context
 
         min_created_at = datetime.now(timezone.utc).timestamp() - AI_CONTEXT_MAX_AGE_SECONDS
-        seen = {x[2] for x in context}
-        fetched: list[tuple[float, str, int, str, str]] = []
+        seen = {x.message_id for x in context}
+        fetched: list[AiContextMessage] = []
         try:
             async for old_msg in history(limit=AI_CONTEXT_MAX_MESSAGES, before=msg):
                 created_at = old_msg.created_at.replace(tzinfo=timezone.utc).timestamp()
@@ -899,13 +975,16 @@ harness_will_reverse_output: {str(harness_will_reverse_output).lower()}
                     break
                 if old_msg.id in seen or not old_msg.content:
                     continue
+                author_key, display_name, author_extra = self._get_ai_author_info(old_msg.author)
                 fetched.append(
-                    (
-                        timer(),
-                        ch_id,
-                        old_msg.id,
-                        self._format_ai_author(old_msg.author),
-                        self._format_ai_text(old_msg, old_msg.content),
+                    AiContextMessage(
+                        created_at=timer(),
+                        channel_id=ch_id,
+                        message_id=old_msg.id,
+                        author_key=author_key,
+                        display_name=display_name,
+                        author_extra=author_extra,
+                        content=self._format_ai_text(old_msg, old_msg.content),
                     )
                 )
         except (discord.Forbidden, discord.HTTPException) as e:
@@ -914,10 +993,17 @@ harness_will_reverse_output: {str(harness_will_reverse_output).lower()}
 
         return fetched[::-1] + context
 
-    async def _get_ai_reply(self, query: str, author: str = "", context: str = "") -> str:
-        content = f"<query author={author!r}>\n{query}\n</query>"
-        if context:
-            content = f"{context}\n\n{content}"
+    async def _get_ai_reply(
+        self,
+        query: str,
+        author: str = "",
+        context: str = "",
+        harness_will_reverse_output: bool = False,
+        session_id: str | None = None,
+    ) -> str:
+        content = self._format_ai_request_content(
+            query, author, context, harness_will_reverse_output
+        )
 
         payload = {
             "model": self.openai_model,
@@ -926,6 +1012,8 @@ harness_will_reverse_output: {str(harness_will_reverse_output).lower()}
                 {"role": "user", "content": content},
             ],
         }
+        if session_id:
+            payload["session_id"] = session_id[:256]
         headers = {
             "Authorization": f"Bearer {self.openai_api_key}",
             "HTTP-Referer": "https://github.com/Anurag-Shah/TobEgassem",
@@ -954,6 +1042,30 @@ harness_will_reverse_output: {str(harness_will_reverse_output).lower()}
 
         return AI_REQUEST_FAILED
 
+    def _get_ai_session_id(self, ch_id: str) -> str:
+        return f"discord-channel-{ch_id}"[:256]
+
+    def _format_ai_request_content(
+        self,
+        query: str,
+        author: str = "",
+        context: str = "",
+        harness_will_reverse_output: bool = False,
+    ) -> str:
+        request = f"""<request>
+<metadata>
+current_time: {datetime.now(timezone.utc).isoformat()}
+harness_will_reverse_output: {str(harness_will_reverse_output).lower()}
+</metadata>
+
+<query author={author!r}>
+{query}
+</query>
+</request>"""
+        if context:
+            return f"{context}\n\n{request}"
+        return request
+
     async def _request_ai_reply(
         self,
         session: aiohttp.ClientSession,
@@ -978,12 +1090,31 @@ harness_will_reverse_output: {str(harness_will_reverse_output).lower()}
             log.warn(f"AI response was not JSON: {text}", "on_message::ai")
             return None, None
 
+        self._log_ai_usage(data)
         reply = self._extract_ai_reply(data)
         if reply:
             return reply, None
 
         log.warn(f"AI response missing content: {text}", "on_message::ai")
         return None, self._parse_ai_retry_after(text)
+
+    def _log_ai_usage(self, data: Any) -> None:
+        if not isinstance(data, dict):
+            return
+        usage = data.get("usage")
+        if not isinstance(usage, dict):
+            return
+        details = usage.get("prompt_tokens_details")
+        if not isinstance(details, dict):
+            return
+        cached_tokens = details.get("cached_tokens")
+        cache_write_tokens = details.get("cache_write_tokens")
+        if cached_tokens or cache_write_tokens:
+            log.debug(
+                f"AI cache usage: cached_tokens={cached_tokens or 0} "
+                f"cache_write_tokens={cache_write_tokens or 0}",
+                "on_message::ai",
+            )
 
     def _extract_ai_reply(self, data: Any) -> str | None:
         if not isinstance(data, dict):
