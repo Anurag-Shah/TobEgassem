@@ -4,7 +4,7 @@ from typing import Any
 from dotenv import load_dotenv
 import discord
 
-from src.tob import AI_REQUEST_FAILED, DISCORD_MESSAGE_MAX_LENGTH, Tob
+from src.tob import AI_REQUEST_FAILED, DISCORD_MESSAGE_MAX_LENGTH, AiContextMessage, Tob
 from src.utils.utils import *
 from src.utils.log import *
 
@@ -111,9 +111,11 @@ class TestTob:
 
     def test_ai_context_messages_use_extra_author_info_once(self):
         context = [
-            (1.0, "channel", 1, "123", "display", "username id=123", "hello <world>"),
-            (2.0, "channel", 2, "123", "display", "username id=123", "again"),
-            (3.0, "channel", 3, "456", "other", "id=456", "bye"),
+            AiContextMessage(
+                1.0, "channel", 1, "123", "display", "username id=123", "hello <world>"
+            ),
+            AiContextMessage(2.0, "channel", 2, "123", "display", "username id=123", "again"),
+            AiContextMessage(3.0, "channel", 3, "456", "other", "id=456", "bye"),
         ]
 
         messages = self.tob._format_ai_context_messages(context)
@@ -127,13 +129,13 @@ class TestTob:
 
     def test_ai_context_removes_deleted_messages(self):
         self.tob.ai_message_context = [
-            (1.0, "channel", 1, "author", "author", "", "one"),
-            (2.0, "channel", 2, "author", "author", "", "two"),
-            (3.0, "channel", 3, "author", "author", "", "three"),
+            AiContextMessage(1.0, "channel", 1, "author", "author", "", "one"),
+            AiContextMessage(2.0, "channel", 2, "author", "author", "", "two"),
+            AiContextMessage(3.0, "channel", 3, "author", "author", "", "three"),
         ]
 
         self.tob._remove_ai_context_message(2)
-        assert [x[2] for x in self.tob.ai_message_context] == [1, 3]
+        assert [x.message_id for x in self.tob.ai_message_context] == [1, 3]
 
         self.tob._remove_ai_context_messages({1, 3})
         assert self.tob.ai_message_context == []
@@ -147,12 +149,14 @@ class TestTob:
             attachments = []
             reference = None
 
-        self.tob.ai_message_context = [(1.0, "channel", 1, "author", "author", "", "old")]
+        self.tob.ai_message_context = [
+            AiContextMessage(1.0, "channel", 1, "author", "author", "", "old")
+        ]
 
         self.tob._update_ai_context_message(Message(), "new <text>")
 
         assert self.tob.ai_message_context == [
-            (1.0, "channel", 1, "author", "author", "", "new <text>")
+            AiContextMessage(1.0, "channel", 1, "author", "author", "", "new <text>")
         ]
 
     def test_ai_reply_retries_missing_content(self, monkeypatch):

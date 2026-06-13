@@ -1,5 +1,6 @@
 from os.path import exists
 import asyncio
+from dataclasses import dataclass
 import html
 import json
 import random
@@ -120,6 +121,17 @@ class InvalidCommandError(Exception):
     pass
 
 
+@dataclass
+class AiContextMessage:
+    created_at: float
+    channel_id: str
+    message_id: int
+    author_key: str
+    display_name: str
+    author_extra: str
+    content: str
+
+
 class Tob(discord.Client):
     # TODO: Docsify this to __init__ (also these are not class variables)
     # Start time, to time ready seconds
@@ -145,7 +157,7 @@ class Tob(discord.Client):
     # Contains blocked channels, cache etc
     data: Any = INIT_DATA
     failed_loading_data: bool = False
-    ai_message_context: list[tuple[float, str, int, str, str, str, str]]
+    ai_message_context: list[AiContextMessage]
     active_messages: int
     shutting_down: bool
     shutdown_waiter: asyncio.Event | None
@@ -867,47 +879,49 @@ class Tob(discord.Client):
         return f"{name} id={guild_id}" if guild_id else str(name)
 
     def _record_ai_context(self, msg: discord.Message, text: str, ch_id: str) -> None:
-        if any(x[2] == msg.id for x in self.ai_message_context):
+        if any(x.message_id == msg.id for x in self.ai_message_context):
             return
+        author_key, display_name, author_extra = self._get_ai_author_info(msg.author)
         self.ai_message_context.append(
-            (
-                timer(),
-                ch_id,
-                msg.id,
-                *self._get_ai_author_info(msg.author),
-                self._format_ai_text(msg, text),
+            AiContextMessage(
+                created_at=timer(),
+                channel_id=ch_id,
+                message_id=msg.id,
+                author_key=author_key,
+                display_name=display_name,
+                author_extra=author_extra,
+                content=self._format_ai_text(msg, text),
             )
         )
         self._prune_ai_context()
 
     def _update_ai_context_message(self, msg: discord.Message, text: str) -> None:
-        for i, context_msg in enumerate(self.ai_message_context):
-            created_at, ch_id, msg_id, *_ = context_msg
-            if msg_id == msg.id:
-                self.ai_message_context[i] = (
-                    created_at,
-                    ch_id,
-                    msg.id,
-                    *self._get_ai_author_info(msg.author),
-                    self._format_ai_text(msg, text),
-                )
+        for context_msg in self.ai_message_context:
+            if context_msg.message_id == msg.id:
+                author_key, display_name, author_extra = self._get_ai_author_info(msg.author)
+                context_msg.author_key = author_key
+                context_msg.display_name = display_name
+                context_msg.author_extra = author_extra
+                context_msg.content = self._format_ai_text(msg, text)
                 return
 
     def _remove_ai_context_message(self, msg_id: int) -> None:
-        self.ai_message_context = [x for x in self.ai_message_context if x[2] != msg_id]
+        self.ai_message_context = [x for x in self.ai_message_context if x.message_id != msg_id]
 
     def _remove_ai_context_messages(self, msg_ids: set[int]) -> None:
-        self.ai_message_context = [x for x in self.ai_message_context if x[2] not in msg_ids]
+        self.ai_message_context = [
+            x for x in self.ai_message_context if x.message_id not in msg_ids
+        ]
 
     def _prune_ai_context(self) -> None:
         min_time = timer() - AI_CONTEXT_MAX_AGE_SECONDS
-        self.ai_message_context = [x for x in self.ai_message_context if x[0] >= min_time]
+        self.ai_message_context = [x for x in self.ai_message_context if x.created_at >= min_time]
 
     async def _get_ai_context(
         self, msg: discord.Message, ch_id: str, harness_will_reverse_output: bool = False
     ) -> str:
         self._prune_ai_context()
-        context = [x for x in self.ai_message_context if x[1] == ch_id]
+        context = [x for x in self.ai_message_context if x.channel_id == ch_id]
         if len(context) < AI_CONTEXT_MAX_MESSAGES:
             context = await self._fetch_ai_context(msg, ch_id, context)
         context = context[-AI_CONTEXT_MAX_MESSAGES:]
@@ -926,21 +940,19 @@ harness_will_reverse_output: {str(harness_will_reverse_output).lower()}
 </messages>
 </context>"""
 
-    def _format_ai_context_messages(
-        self, context: list[tuple[float, str, int, str, str, str, str]]
-    ) -> str:
+    def _format_ai_context_messages(self, context: list[AiContextMessage]) -> str:
         seen_authors = set()
         messages = []
-        for _, _, message_id, author_key, display_name, extra, content in context:
-            include_extra = author_key not in seen_authors
-            seen_authors.add(author_key)
-            author = display_name
-            if include_extra and extra:
-                author = f"{display_name} ({extra})"
+        for context_msg in context:
+            include_extra = context_msg.author_key not in seen_authors
+            seen_authors.add(context_msg.author_key)
+            author = context_msg.display_name
+            if include_extra and context_msg.author_extra:
+                author = f"{context_msg.display_name} ({context_msg.author_extra})"
             messages.append(
-                f'<message id="{html.escape(str(message_id), quote=True)}" '
+                f'<message id="{html.escape(str(context_msg.message_id), quote=True)}" '
                 f'author="{html.escape(author, quote=True)}">\n'
-                f"{html.escape(content)}\n"
+                f"{html.escape(context_msg.content)}\n"
                 f"</message>"
             )
         return "\n".join(messages)
@@ -949,15 +961,15 @@ harness_will_reverse_output: {str(harness_will_reverse_output).lower()}
         self,
         msg: discord.Message,
         ch_id: str,
-        context: list[tuple[float, str, int, str, str, str, str]],
-    ) -> list[tuple[float, str, int, str, str, str, str]]:
+        context: list[AiContextMessage],
+    ) -> list[AiContextMessage]:
         history = getattr(msg.channel, "history", None)
         if not history:
             return context
 
         min_created_at = datetime.now(timezone.utc).timestamp() - AI_CONTEXT_MAX_AGE_SECONDS
-        seen = {x[2] for x in context}
-        fetched: list[tuple[float, str, int, str, str, str, str]] = []
+        seen = {x.message_id for x in context}
+        fetched: list[AiContextMessage] = []
         try:
             async for old_msg in history(limit=AI_CONTEXT_MAX_MESSAGES, before=msg):
                 created_at = old_msg.created_at.replace(tzinfo=timezone.utc).timestamp()
@@ -965,13 +977,16 @@ harness_will_reverse_output: {str(harness_will_reverse_output).lower()}
                     break
                 if old_msg.id in seen or not old_msg.content:
                     continue
+                author_key, display_name, author_extra = self._get_ai_author_info(old_msg.author)
                 fetched.append(
-                    (
-                        timer(),
-                        ch_id,
-                        old_msg.id,
-                        *self._get_ai_author_info(old_msg.author),
-                        self._format_ai_text(old_msg, old_msg.content),
+                    AiContextMessage(
+                        created_at=timer(),
+                        channel_id=ch_id,
+                        message_id=old_msg.id,
+                        author_key=author_key,
+                        display_name=display_name,
+                        author_extra=author_extra,
+                        content=self._format_ai_text(old_msg, old_msg.content),
                     )
                 )
         except (discord.Forbidden, discord.HTTPException) as e:
