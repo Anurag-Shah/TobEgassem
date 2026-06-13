@@ -120,12 +120,9 @@ class TestTob:
 
         messages = self.tob._format_ai_context_messages(context)
 
-        assert (
-            '<message id="1" author="display (username id=123)">\nhello &lt;world&gt;\n</message>'
-            in messages
-        )
-        assert '<message id="2" author="display">\nagain\n</message>' in messages
-        assert '<message id="3" author="other (id=456)">\nbye\n</message>' in messages
+        assert '<m id="1" a="display (username id=123)">\nhello &lt;world&gt;\n</m>' in messages
+        assert '<m id="2" a="display">\nagain\n</m>' in messages
+        assert '<m id="3" a="other (id=456)">\nbye\n</m>' in messages
 
     def test_ai_context_removes_deleted_messages(self):
         self.tob.ai_message_context = [
