@@ -289,6 +289,7 @@ class Tob(discord.Client):
                             self._format_ai_author(msg.author),
                             ai_context,
                             reverse_reply,
+                            self._get_ai_session_id(ch_id),
                         )
                         if reverse_reply and reply != AI_REQUEST_FAILED:
                             reply = fullreverse(reply)
@@ -998,6 +999,7 @@ channel: {self._format_ai_channel(msg.channel)}
         author: str = "",
         context: str = "",
         harness_will_reverse_output: bool = False,
+        session_id: str | None = None,
     ) -> str:
         content = self._format_ai_request_content(
             query, author, context, harness_will_reverse_output
@@ -1010,6 +1012,8 @@ channel: {self._format_ai_channel(msg.channel)}
                 {"role": "user", "content": content},
             ],
         }
+        if session_id:
+            payload["session_id"] = session_id[:256]
         headers = {
             "Authorization": f"Bearer {self.openai_api_key}",
             "HTTP-Referer": "https://github.com/Anurag-Shah/TobEgassem",
@@ -1037,6 +1041,9 @@ channel: {self._format_ai_channel(msg.channel)}
                 await asyncio.sleep(delay)
 
         return AI_REQUEST_FAILED
+
+    def _get_ai_session_id(self, ch_id: str) -> str:
+        return f"discord-channel-{ch_id}"[:256]
 
     def _format_ai_request_content(
         self,
