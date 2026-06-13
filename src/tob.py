@@ -196,6 +196,9 @@ class Tob(discord.Client):
             # Register event handlers
             self.event(self.on_ready)
             self.event(self.on_message)
+            self.event(self.on_message_edit)
+            self.event(self.on_raw_message_delete)
+            self.event(self.on_raw_bulk_message_delete)
             signal.signal(signal.SIGINT, self._handle_ctrlc)  # type: ignore
 
     # -------------------------------------- Event Handlers -------------------------------------- #
@@ -204,6 +207,18 @@ class Tob(discord.Client):
         elapsed = timer() - self.start_time
         log.info("Ready after:  {:.3f}s".format(elapsed), "on_ready")
         log.info(f"Logged in as: {self.user}", "on_ready")
+
+    async def on_message_edit(self, before: discord.Message, after: discord.Message) -> None:
+        if not after.content:
+            self._remove_ai_context_message(after.id)
+            return
+        self._update_ai_context_message(after, after.content)
+
+    async def on_raw_message_delete(self, payload: discord.RawMessageDeleteEvent) -> None:
+        self._remove_ai_context_message(payload.message_id)
+
+    async def on_raw_bulk_message_delete(self, payload: discord.RawBulkMessageDeleteEvent) -> None:
+        self._remove_ai_context_messages(payload.message_ids)
 
     async def on_message(self, msg: discord.Message) -> None:
         # Dont respond to no message content
@@ -864,6 +879,25 @@ class Tob(discord.Client):
             )
         )
         self._prune_ai_context()
+
+    def _update_ai_context_message(self, msg: discord.Message, text: str) -> None:
+        for i, context_msg in enumerate(self.ai_message_context):
+            created_at, ch_id, msg_id, *_ = context_msg
+            if msg_id == msg.id:
+                self.ai_message_context[i] = (
+                    created_at,
+                    ch_id,
+                    msg.id,
+                    *self._get_ai_author_info(msg.author),
+                    self._format_ai_text(msg, text),
+                )
+                return
+
+    def _remove_ai_context_message(self, msg_id: int) -> None:
+        self.ai_message_context = [x for x in self.ai_message_context if x[2] != msg_id]
+
+    def _remove_ai_context_messages(self, msg_ids: set[int]) -> None:
+        self.ai_message_context = [x for x in self.ai_message_context if x[2] not in msg_ids]
 
     def _prune_ai_context(self) -> None:
         min_time = timer() - AI_CONTEXT_MAX_AGE_SECONDS

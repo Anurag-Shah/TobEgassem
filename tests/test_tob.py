@@ -125,6 +125,36 @@ class TestTob:
         assert '<message id="2" author="display">\nagain\n</message>' in messages
         assert '<message id="3" author="other (id=456)">\nbye\n</message>' in messages
 
+    def test_ai_context_removes_deleted_messages(self):
+        self.tob.ai_message_context = [
+            (1.0, "channel", 1, "author", "author", "", "one"),
+            (2.0, "channel", 2, "author", "author", "", "two"),
+            (3.0, "channel", 3, "author", "author", "", "three"),
+        ]
+
+        self.tob._remove_ai_context_message(2)
+        assert [x[2] for x in self.tob.ai_message_context] == [1, 3]
+
+        self.tob._remove_ai_context_messages({1, 3})
+        assert self.tob.ai_message_context == []
+
+    def test_ai_context_updates_edited_messages(self):
+        class Message:
+            id = 1
+            author = "author"
+            mentions = []
+            channel_mentions = []
+            attachments = []
+            reference = None
+
+        self.tob.ai_message_context = [(1.0, "channel", 1, "author", "author", "", "old")]
+
+        self.tob._update_ai_context_message(Message(), "new <text>")
+
+        assert self.tob.ai_message_context == [
+            (1.0, "channel", 1, "author", "author", "", "new <text>")
+        ]
+
     def test_ai_reply_retries_missing_content(self, monkeypatch):
         calls = 0
 
