@@ -281,13 +281,14 @@ class Tob(discord.Client):
                 log.debug(f"AI: {format_msg_full(msg)}", "on_message::ai")
                 try:
                     reverse_reply = random_chance(self.probability)
-                    ai_context = await self._get_ai_context(msg, ch_id, reverse_reply)
+                    ai_context = await self._get_ai_context(msg, ch_id)
                     self._record_ai_context(msg, text, ch_id)
                     async with msg.channel.typing():
                         reply = await self._get_ai_reply(
                             self._format_ai_text(msg, query),
                             self._format_ai_author(msg.author),
                             ai_context,
+                            reverse_reply,
                         )
                         if reverse_reply and reply != AI_REQUEST_FAILED:
                             reply = fullreverse(reply)
@@ -917,9 +918,7 @@ class Tob(discord.Client):
         min_time = timer() - AI_CONTEXT_MAX_AGE_SECONDS
         self.ai_message_context = [x for x in self.ai_message_context if x.created_at >= min_time]
 
-    async def _get_ai_context(
-        self, msg: discord.Message, ch_id: str, harness_will_reverse_output: bool = False
-    ) -> str:
+    async def _get_ai_context(self, msg: discord.Message, ch_id: str) -> str:
         self._prune_ai_context()
         context = [x for x in self.ai_message_context if x.channel_id == ch_id]
         if len(context) < AI_CONTEXT_MAX_MESSAGES:
@@ -927,17 +926,15 @@ class Tob(discord.Client):
         context = context[-AI_CONTEXT_MAX_MESSAGES:]
         messages = self._format_ai_context_messages(context)
         return f"""<context>
-<metadata>
-current_time: {datetime.now(timezone.utc).isoformat()}
-self: {self._format_ai_author(self.user)}
-server: {self._format_ai_guild(msg.guild)}
-channel: {self._format_ai_channel(msg.channel)}
-harness_will_reverse_output: {str(harness_will_reverse_output).lower()}
-</metadata>
-
 <messages>
 {messages}
 </messages>
+
+<metadata>
+self: {self._format_ai_author(self.user)}
+server: {self._format_ai_guild(msg.guild)}
+channel: {self._format_ai_channel(msg.channel)}
+</metadata>
 </context>"""
 
     def _format_ai_context_messages(self, context: list[AiContextMessage]) -> str:
@@ -995,10 +992,16 @@ harness_will_reverse_output: {str(harness_will_reverse_output).lower()}
 
         return fetched[::-1] + context
 
-    async def _get_ai_reply(self, query: str, author: str = "", context: str = "") -> str:
-        content = f"<query author={author!r}>\n{query}\n</query>"
-        if context:
-            content = f"{context}\n\n{content}"
+    async def _get_ai_reply(
+        self,
+        query: str,
+        author: str = "",
+        context: str = "",
+        harness_will_reverse_output: bool = False,
+    ) -> str:
+        content = self._format_ai_request_content(
+            query, author, context, harness_will_reverse_output
+        )
 
         payload = {
             "model": self.openai_model,
@@ -1034,6 +1037,27 @@ harness_will_reverse_output: {str(harness_will_reverse_output).lower()}
                 await asyncio.sleep(delay)
 
         return AI_REQUEST_FAILED
+
+    def _format_ai_request_content(
+        self,
+        query: str,
+        author: str = "",
+        context: str = "",
+        harness_will_reverse_output: bool = False,
+    ) -> str:
+        request = f"""<request>
+<metadata>
+current_time: {datetime.now(timezone.utc).isoformat()}
+harness_will_reverse_output: {str(harness_will_reverse_output).lower()}
+</metadata>
+
+<query author={author!r}>
+{query}
+</query>
+</request>"""
+        if context:
+            return f"{context}\n\n{request}"
+        return request
 
     async def _request_ai_reply(
         self,

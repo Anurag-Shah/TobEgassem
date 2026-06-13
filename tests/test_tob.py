@@ -159,6 +159,15 @@ class TestTob:
             AiContextMessage(1.0, "channel", 1, "author", "author", "", "new <text>")
         ]
 
+    def test_ai_request_places_volatile_metadata_after_context(self):
+        context = "<context>\n<messages>old</messages>\n</context>"
+
+        content = self.tob._format_ai_request_content("hi", "author", context, True)
+
+        assert content.startswith(context)
+        assert content.index("current_time:") > content.index("</context>")
+        assert "harness_will_reverse_output: true" in content
+
     def test_ai_reply_retries_missing_content(self, monkeypatch):
         calls = 0
 
