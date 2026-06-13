@@ -62,8 +62,7 @@ URL_REGEX = re.compile(
 
 AI_TRIGGER = "@tob "
 AI_ADMIN_USER_IDS = {302516756256391168}
-AI_CONTEXT_MAX_AGE_SECONDS = 24 * 60 * 60
-AI_CONTEXT_MAX_MESSAGES = 50
+AI_CONTEXT_MAX_MESSAGES = 20
 AI_REQUEST_FAILED = "AI request failed."
 AI_REQUEST_MAX_ATTEMPTS = 3
 AI_REQUEST_TIMEOUT_SECONDS = 45
@@ -919,8 +918,14 @@ class Tob(discord.Client):
         ]
 
     def _prune_ai_context(self) -> None:
-        min_time = timer() - AI_CONTEXT_MAX_AGE_SECONDS
-        self.ai_message_context = [x for x in self.ai_message_context if x.created_at >= min_time]
+        contexts_by_channel: dict[str, list[AiContextMessage]] = {}
+        for context_msg in self.ai_message_context:
+            contexts_by_channel.setdefault(context_msg.channel_id, []).append(context_msg)
+        self.ai_message_context = [
+            context_msg
+            for context in contexts_by_channel.values()
+            for context_msg in context[-AI_CONTEXT_MAX_MESSAGES:]
+        ]
 
     async def _get_ai_context(self, msg: discord.Message, ch_id: str) -> str:
         self._prune_ai_context()
@@ -968,14 +973,10 @@ channel: {self._format_ai_channel(msg.channel)}
         if not history:
             return context
 
-        min_created_at = datetime.now(timezone.utc).timestamp() - AI_CONTEXT_MAX_AGE_SECONDS
         seen = {x.message_id for x in context}
         fetched: list[AiContextMessage] = []
         try:
             async for old_msg in history(limit=AI_CONTEXT_MAX_MESSAGES, before=msg):
-                created_at = old_msg.created_at.replace(tzinfo=timezone.utc).timestamp()
-                if created_at < min_created_at:
-                    break
                 if old_msg.id in seen or not old_msg.content:
                     continue
                 author_key, display_name, author_extra = self._get_ai_author_info(old_msg.author)

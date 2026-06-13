@@ -156,6 +156,21 @@ class TestTob:
             AiContextMessage(1.0, "channel", 1, "author", "author", "", "new <text>")
         ]
 
+    def test_ai_context_prunes_to_latest_messages_per_channel(self):
+        self.tob.ai_message_context = [
+            AiContextMessage(float(i), "channel", i, "author", "author", "", str(i))
+            for i in range(25)
+        ] + [AiContextMessage(1.0, "other", 100, "author", "author", "", "other")]
+
+        self.tob._prune_ai_context()
+
+        assert [
+            x.message_id for x in self.tob.ai_message_context if x.channel_id == "channel"
+        ] == list(range(5, 25))
+        assert [x.message_id for x in self.tob.ai_message_context if x.channel_id == "other"] == [
+            100
+        ]
+
     def test_ai_context_places_stable_metadata_before_messages(self):
         class Message:
             guild = "guild"
