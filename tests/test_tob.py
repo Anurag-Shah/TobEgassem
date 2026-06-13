@@ -159,6 +159,21 @@ class TestTob:
             AiContextMessage(1.0, "channel", 1, "author", "author", "", "new <text>")
         ]
 
+    def test_ai_context_places_stable_metadata_before_messages(self):
+        class Message:
+            guild = "guild"
+            channel = "channel"
+
+        self.tob.ai_message_context = [
+            AiContextMessage(1.0, "channel", 1, "author", "author", "", "old")
+        ]
+
+        context = asyncio.run(self.tob._get_ai_context(Message(), "channel"))
+
+        assert context.index("<metadata>") < context.index("<messages>")
+        assert "current_time:" not in context
+        assert "harness_will_reverse_output:" not in context
+
     def test_ai_request_places_volatile_metadata_after_context(self):
         context = "<context>\n<messages>old</messages>\n</context>"
 

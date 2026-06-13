@@ -927,15 +927,15 @@ class Tob(discord.Client):
         context = context[-AI_CONTEXT_MAX_MESSAGES:]
         messages = self._format_ai_context_messages(context)
         return f"""<context>
-<messages>
-{messages}
-</messages>
-
 <metadata>
 self: {self._format_ai_author(self.user)}
 server: {self._format_ai_guild(msg.guild)}
 channel: {self._format_ai_channel(msg.channel)}
 </metadata>
+
+<messages>
+{messages}
+</messages>
 </context>"""
 
     def _format_ai_context_messages(self, context: list[AiContextMessage]) -> str:
@@ -1090,12 +1090,31 @@ harness_will_reverse_output: {str(harness_will_reverse_output).lower()}
             log.warn(f"AI response was not JSON: {text}", "on_message::ai")
             return None, None
 
+        self._log_ai_usage(data)
         reply = self._extract_ai_reply(data)
         if reply:
             return reply, None
 
         log.warn(f"AI response missing content: {text}", "on_message::ai")
         return None, self._parse_ai_retry_after(text)
+
+    def _log_ai_usage(self, data: Any) -> None:
+        if not isinstance(data, dict):
+            return
+        usage = data.get("usage")
+        if not isinstance(usage, dict):
+            return
+        details = usage.get("prompt_tokens_details")
+        if not isinstance(details, dict):
+            return
+        cached_tokens = details.get("cached_tokens")
+        cache_write_tokens = details.get("cache_write_tokens")
+        if cached_tokens or cache_write_tokens:
+            log.debug(
+                f"AI cache usage: cached_tokens={cached_tokens or 0} "
+                f"cache_write_tokens={cache_write_tokens or 0}",
+                "on_message::ai",
+            )
 
     def _extract_ai_reply(self, data: Any) -> str | None:
         if not isinstance(data, dict):
