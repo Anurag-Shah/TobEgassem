@@ -220,6 +220,39 @@ class TestTob:
             self.tob._request_ai_reply = old_request_ai_reply
             self.tob.openai_web_search = old_openai_web_search
 
+    def test_ai_reply_uses_low_reasoning_by_default(self):
+        payloads = []
+
+        async def request_ai_reply(_session, _url, payload, _headers):
+            payloads.append(payload)
+            return "ok", None
+
+        old_request_ai_reply = self.tob._request_ai_reply
+        try:
+            self.tob._request_ai_reply = request_ai_reply
+
+            assert asyncio.run(self.tob._get_ai_reply("hello")) == "ok"
+            assert payloads[0]["reasoning"] == {"effort": "low"}
+        finally:
+            self.tob._request_ai_reply = old_request_ai_reply
+
+    def test_ai_reply_ultrathink_uses_high_reasoning_and_strips_keyword(self):
+        payloads = []
+
+        async def request_ai_reply(_session, _url, payload, _headers):
+            payloads.append(payload)
+            return "ok", None
+
+        old_request_ai_reply = self.tob._request_ai_reply
+        try:
+            self.tob._request_ai_reply = request_ai_reply
+
+            assert asyncio.run(self.tob._get_ai_reply("ultrathink hello")) == "ok"
+            assert payloads[0]["reasoning"] == {"effort": "high"}
+            assert "ultrathink" not in payloads[0]["messages"][1]["content"]
+        finally:
+            self.tob._request_ai_reply = old_request_ai_reply
+
     def test_ai_reply_sends_session_id(self):
         payloads = []
 

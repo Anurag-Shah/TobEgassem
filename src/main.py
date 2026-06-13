@@ -24,6 +24,7 @@ def main():
     args["openai_api_key"] = os.getenv("OPENAI_API_KEY")
     env_arg(args, "OPENAI_BASE_URL", "openai_base_url", default="https://api.openai.com/v1")
     env_arg(args, "OPENAI_MODEL", "openai_model", default="gpt-4o-mini")
+    env_arg(args, "OPENAI_REASONING_EFFORT", "openai_reasoning_effort", default="low")
     args["openai_web_search"] = to_bool(os.getenv("OPENAI_WEB_SEARCH", False))
 
     tob = Tob(**args)

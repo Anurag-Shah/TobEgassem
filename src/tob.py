@@ -69,6 +69,7 @@ AI_REQUEST_MAX_ATTEMPTS = 3
 AI_REQUEST_TIMEOUT_SECONDS = 45
 AI_RETRY_DELAY_SECONDS = 1
 AI_RETRY_MAX_DELAY_SECONDS = 15
+AI_HIGH_REASONING_KEYWORD = "ultrathink"
 DISCORD_MESSAGE_MAX_LENGTH = 2000
 AI_SYSTEM_PROMPT = """
 you're tob, a friendly ai chatbot embedded in a discord server.
@@ -153,6 +154,7 @@ class Tob(discord.Client):
     openai_api_key: str | None
     openai_base_url: str
     openai_model: str
+    openai_reasoning_effort: str
     openai_web_search: bool
     # Contains blocked channels, cache etc
     data: Any = INIT_DATA
@@ -176,6 +178,7 @@ class Tob(discord.Client):
         openai_api_key: str | None = None,
         openai_base_url: str = "https://api.openai.com/v1",
         openai_model: str = "gpt-4o-mini",
+        openai_reasoning_effort: str = "low",
         openai_web_search: bool = False,
     ) -> None:
         intents = discord.Intents().default()
@@ -195,6 +198,7 @@ class Tob(discord.Client):
         self.openai_api_key = openai_api_key
         self.openai_base_url = openai_base_url.rstrip("/")
         self.openai_model = openai_model
+        self.openai_reasoning_effort = openai_reasoning_effort
         self.openai_web_search = openai_web_search
         self.ai_message_context = []
         self.active_messages = 0
@@ -1000,12 +1004,15 @@ channel: {self._format_ai_channel(msg.channel)}
         harness_will_reverse_output: bool = False,
         session_id: str | None = None,
     ) -> str:
+        reasoning_effort = self._get_ai_reasoning_effort(query)
+        query = self._strip_ai_reasoning_keywords(query)
         content = self._format_ai_request_content(
             query, author, context, harness_will_reverse_output
         )
 
         payload = {
             "model": self.openai_model,
+            "reasoning": {"effort": reasoning_effort},
             "messages": [
                 {"role": "system", "content": AI_SYSTEM_PROMPT},
                 {"role": "user", "content": content},
@@ -1040,6 +1047,15 @@ channel: {self._format_ai_channel(msg.channel)}
                 await asyncio.sleep(delay)
 
         return AI_REQUEST_FAILED
+
+    def _get_ai_reasoning_effort(self, query: str) -> str:
+        if re.search(rf"\b{re.escape(AI_HIGH_REASONING_KEYWORD)}\b", query, re.I):
+            return "high"
+        return self.openai_reasoning_effort
+
+    def _strip_ai_reasoning_keywords(self, query: str) -> str:
+        query = re.sub(rf"\b{re.escape(AI_HIGH_REASONING_KEYWORD)}\b", "", query, flags=re.I)
+        return " ".join(query.split())
 
     def _get_ai_session_id(self, ch_id: str) -> str:
         return f"discord-channel-{ch_id}"[:256]
