@@ -1,6 +1,7 @@
 from os.path import exists
 import asyncio
 from dataclasses import dataclass
+from enum import Enum
 import html
 import json
 import random
@@ -69,6 +70,7 @@ AI_REQUEST_TIMEOUT_SECONDS = 45
 AI_RETRY_DELAY_SECONDS = 1
 AI_RETRY_MAX_DELAY_SECONDS = 15
 AI_HIGH_REASONING_KEYWORD = "ultrathink"
+AI_WEB_SEARCH_CONTEXT_SIZE = "medium"
 DISCORD_MESSAGE_MAX_LENGTH = 2000
 AI_SYSTEM_PROMPT = """
 you're tob, a friendly ai chatbot embedded in a discord server.
@@ -121,6 +123,25 @@ class InvalidCommandError(Exception):
     pass
 
 
+class AiProvider(Enum):
+    OPENAI = "openai"
+    OPENROUTER = "openrouter"
+    ORCAROUTER = "orcarouter"
+    UNKNOWN = "unknown"
+
+
+def detect_ai_provider(api_key: str | None) -> AiProvider:
+    if not api_key:
+        return AiProvider.UNKNOWN
+    if api_key.startswith("sk-orca-"):
+        return AiProvider.ORCAROUTER
+    if api_key.startswith("sk-or-v1-"):
+        return AiProvider.OPENROUTER
+    if api_key.startswith("sk-"):
+        return AiProvider.OPENAI
+    return AiProvider.UNKNOWN
+
+
 @dataclass
 class AiContextMessage:
     created_at: float
@@ -151,6 +172,7 @@ class Tob(discord.Client):
     # OpenAI-compatible API settings
     enable_ai: bool
     openai_api_key: str | None
+    openai_provider: AiProvider
     openai_base_url: str
     openai_model: str
     openai_reasoning_effort: str
@@ -195,6 +217,7 @@ class Tob(discord.Client):
         self.clear_cache = clear_cache
         self.enable_ai = enable_ai
         self.openai_api_key = openai_api_key
+        self.openai_provider = detect_ai_provider(openai_api_key)
         self.openai_base_url = openai_base_url.rstrip("/")
         self.openai_model = openai_model
         self.openai_reasoning_effort = openai_reasoning_effort
@@ -1013,12 +1036,12 @@ channel: {self._format_ai_channel(msg.channel)}
 
         payload = {
             "model": self.openai_model,
-            "reasoning": {"effort": reasoning_effort},
             "messages": [
                 {"role": "system", "content": AI_SYSTEM_PROMPT},
                 {"role": "user", "content": content},
             ],
         }
+        self._add_ai_reasoning(payload, reasoning_effort)
         if session_id:
             payload["session_id"] = session_id[:256]
         headers = {
@@ -1028,7 +1051,7 @@ channel: {self._format_ai_channel(msg.channel)}
         }
         url = f"{self.openai_base_url}/chat/completions"
         if self.openai_web_search:
-            payload["tools"] = [{"type": "openrouter:web_search"}]
+            self._add_ai_web_search(payload)
         timeout = aiohttp.ClientTimeout(total=AI_REQUEST_TIMEOUT_SECONDS)
 
         async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -1048,6 +1071,23 @@ channel: {self._format_ai_channel(msg.channel)}
                 await asyncio.sleep(delay)
 
         return AI_REQUEST_FAILED
+
+    def _add_ai_reasoning(self, payload: dict[str, Any], effort: str) -> None:
+        if self.openai_provider in (AiProvider.OPENAI, AiProvider.ORCAROUTER):
+            payload["reasoning_effort"] = effort
+        else:
+            payload["reasoning"] = {"effort": effort}
+
+    def _add_ai_web_search(self, payload: dict[str, Any]) -> None:
+        if self.openai_provider is AiProvider.OPENROUTER:
+            payload["tools"] = [{"type": "openrouter:web_search"}]
+        elif self.openai_provider in (AiProvider.OPENAI, AiProvider.ORCAROUTER):
+            payload["web_search_options"] = {"search_context_size": AI_WEB_SEARCH_CONTEXT_SIZE}
+        else:
+            log.warn(
+                "AI web search enabled but the API provider could not be detected; skipping",
+                "on_message::ai",
+            )
 
     def _get_ai_reasoning_effort(self, query: str) -> str:
         if re.search(rf"\b{re.escape(AI_HIGH_REASONING_KEYWORD)}\b", query, re.I):

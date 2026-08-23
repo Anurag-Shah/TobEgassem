@@ -4,7 +4,14 @@ import os
 from dotenv import load_dotenv
 import discord
 
-from src.tob import AI_REQUEST_FAILED, DISCORD_MESSAGE_MAX_LENGTH, AiContextMessage, Tob
+from src.tob import (
+    AI_REQUEST_FAILED,
+    DISCORD_MESSAGE_MAX_LENGTH,
+    AiContextMessage,
+    AiProvider,
+    Tob,
+    detect_ai_provider,
+)
 from src.utils.utils import *
 from src.utils.log import *
 
@@ -31,6 +38,13 @@ class TestTob:
     # Pre-populate cache to avoid hitting the Twitter API.
     tob.data["cache"]["is_twitter_video"]["1553120835686252544"] = False
     tob.data["cache"]["is_twitter_video"]["1553479370383171584"] = True
+
+    def test_detect_ai_provider(self):
+        assert detect_ai_provider("sk-or-v1-test") is AiProvider.OPENROUTER
+        assert detect_ai_provider("sk-orca-test") is AiProvider.ORCAROUTER
+        assert detect_ai_provider("sk-proj-test") is AiProvider.OPENAI
+        assert detect_ai_provider("custom-test") is AiProvider.UNKNOWN
+        assert detect_ai_provider(None) is AiProvider.UNKNOWN
 
     def test_url_substitution(self):
         content = """Media discordapp net
@@ -223,16 +237,31 @@ class TestTob:
             return "ok", None
 
         old_request_ai_reply = self.tob._request_ai_reply
+        old_openai_api_key = self.tob.openai_api_key
+        old_openai_provider = self.tob.openai_provider
         old_openai_web_search = self.tob.openai_web_search
         try:
             self.tob._request_ai_reply = request_ai_reply
+            self.tob.openai_api_key = "sk-or-v1-test"
+            self.tob.openai_provider = AiProvider.OPENROUTER
             self.tob.openai_web_search = True
 
             assert asyncio.run(self.tob._get_ai_reply("hello")) == "ok"
             assert payloads
-            assert all("tools" in payload for payload in payloads)
+            assert payloads[0]["tools"] == [{"type": "openrouter:web_search"}]
+            assert "web_search_options" not in payloads[0]
+
+            payloads.clear()
+            self.tob.openai_api_key = "sk-orca-test"
+            self.tob.openai_provider = AiProvider.ORCAROUTER
+
+            assert asyncio.run(self.tob._get_ai_reply("hello")) == "ok"
+            assert payloads[0]["web_search_options"] == {"search_context_size": "medium"}
+            assert "tools" not in payloads[0]
         finally:
             self.tob._request_ai_reply = old_request_ai_reply
+            self.tob.openai_api_key = old_openai_api_key
+            self.tob.openai_provider = old_openai_provider
             self.tob.openai_web_search = old_openai_web_search
 
     def test_ai_reply_uses_low_reasoning_by_default(self):
@@ -243,13 +272,42 @@ class TestTob:
             return "ok", None
 
         old_request_ai_reply = self.tob._request_ai_reply
+        old_openai_api_key = self.tob.openai_api_key
+        old_openai_provider = self.tob.openai_provider
         try:
             self.tob._request_ai_reply = request_ai_reply
+            self.tob.openai_api_key = "sk-or-v1-test"
+            self.tob.openai_provider = AiProvider.OPENROUTER
 
             assert asyncio.run(self.tob._get_ai_reply("hello")) == "ok"
             assert payloads[0]["reasoning"] == {"effort": "low"}
         finally:
             self.tob._request_ai_reply = old_request_ai_reply
+            self.tob.openai_api_key = old_openai_api_key
+            self.tob.openai_provider = old_openai_provider
+
+    def test_ai_reply_uses_orcarouter_reasoning_effort(self):
+        payloads = []
+
+        async def request_ai_reply(_session, _url, payload, _headers):
+            payloads.append(payload)
+            return "ok", None
+
+        old_request_ai_reply = self.tob._request_ai_reply
+        old_openai_api_key = self.tob.openai_api_key
+        old_openai_provider = self.tob.openai_provider
+        try:
+            self.tob._request_ai_reply = request_ai_reply
+            self.tob.openai_api_key = "sk-orca-test"
+            self.tob.openai_provider = AiProvider.ORCAROUTER
+
+            assert asyncio.run(self.tob._get_ai_reply("hello")) == "ok"
+            assert payloads[0]["reasoning_effort"] == "low"
+            assert "reasoning" not in payloads[0]
+        finally:
+            self.tob._request_ai_reply = old_request_ai_reply
+            self.tob.openai_api_key = old_openai_api_key
+            self.tob.openai_provider = old_openai_provider
 
     def test_ai_reply_ultrathink_uses_high_reasoning_and_strips_keyword(self):
         payloads = []
@@ -259,14 +317,20 @@ class TestTob:
             return "ok", None
 
         old_request_ai_reply = self.tob._request_ai_reply
+        old_openai_api_key = self.tob.openai_api_key
+        old_openai_provider = self.tob.openai_provider
         try:
             self.tob._request_ai_reply = request_ai_reply
+            self.tob.openai_api_key = "sk-orca-test"
+            self.tob.openai_provider = AiProvider.ORCAROUTER
 
             assert asyncio.run(self.tob._get_ai_reply("ultrathink hello")) == "ok"
-            assert payloads[0]["reasoning"] == {"effort": "high"}
+            assert payloads[0]["reasoning_effort"] == "high"
             assert "ultrathink" not in payloads[0]["messages"][1]["content"]
         finally:
             self.tob._request_ai_reply = old_request_ai_reply
+            self.tob.openai_api_key = old_openai_api_key
+            self.tob.openai_provider = old_openai_provider
 
     def test_ai_reply_sends_session_id(self):
         payloads = []
