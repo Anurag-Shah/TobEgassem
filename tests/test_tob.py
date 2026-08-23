@@ -8,6 +8,7 @@ from src.tob import (
     AI_REQUEST_FAILED,
     DISCORD_MESSAGE_MAX_LENGTH,
     AiContextMessage,
+    AiQuery,
     AiProvider,
     Tob,
     detect_ai_provider,
@@ -101,7 +102,12 @@ class TestTob:
     def test_ai_query_accepts_whitespace_after_trigger(self):
         msg = get_message("@tob\nhello")
 
-        assert self.tob._get_ai_query(msg, msg.content) == "hello"
+        assert self.tob._get_ai_query(msg, msg.content) == AiQuery("hello", False)
+
+    def test_ai_query_can_disable_context(self):
+        msg = get_message("@tob --no-context\nhello")
+
+        assert self.tob._get_ai_query(msg, msg.content) == AiQuery("hello", True)
 
     def test_ai_mentions_use_display_name_without_discriminator(self):
         class User:
@@ -199,6 +205,13 @@ class TestTob:
         assert context.index("<metadata>") < context.index("<messages>")
         assert "current_time:" not in context
         assert "harness_will_reverse_output:" not in context
+
+    def test_ai_context_can_be_skipped(self):
+        class Message:
+            guild = "guild"
+            channel = "channel"
+
+        assert asyncio.run(self.tob._get_ai_context(Message(), "channel", True)) == ""
 
     def test_ai_request_places_volatile_metadata_after_context(self):
         context = "<context>\n<messages>old</messages>\n</context>"

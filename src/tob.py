@@ -71,6 +71,7 @@ AI_RETRY_DELAY_SECONDS = 1
 AI_RETRY_MAX_DELAY_SECONDS = 15
 AI_HIGH_REASONING_KEYWORD = "ultrathink"
 AI_WEB_SEARCH_CONTEXT_SIZE = "medium"
+AI_NO_CONTEXT_REGEX = re.compile(r"(?<!\S)--no-context(?=\s|$)", re.I)
 DISCORD_MESSAGE_MAX_LENGTH = 2000
 AI_SYSTEM_PROMPT = """
 you're tob, a friendly ai chatbot embedded in a discord server.
@@ -122,6 +123,12 @@ class Data(TypedDict):
 
 class InvalidCommandError(Exception):
     pass
+
+
+@dataclass
+class AiQuery:
+    text: str
+    no_context: bool
 
 
 class AiProvider(Enum):
@@ -279,7 +286,8 @@ class Tob(discord.Client):
         self.active_messages += 1
         try:
             # AI chat
-            if query := self._get_ai_query(msg, text):
+            if ai_query := self._get_ai_query(msg, text):
+                query = ai_query.text
                 if query.lower() in ("ai enable", "ai disable"):
                     if not self._is_admin(msg):
                         log.debug("Ignoring AI command from non-admin", "on_message::ai")
@@ -308,7 +316,7 @@ class Tob(discord.Client):
                 log.debug(f"AI: {format_msg_full(msg)}", "on_message::ai")
                 try:
                     reverse_reply = random_chance(self.probability)
-                    ai_context = await self._get_ai_context(msg, ch_id)
+                    ai_context = await self._get_ai_context(msg, ch_id, ai_query.no_context)
                     self._record_ai_context(msg, text, ch_id)
                     async with msg.channel.typing():
                         reply = await self._get_ai_reply(
@@ -811,7 +819,7 @@ class Tob(discord.Client):
     def _is_admin(self, msg: discord.Message) -> bool:
         return getattr(getattr(msg, "author", None), "id", None) in AI_ADMIN_USER_IDS
 
-    def _get_ai_query(self, msg: discord.Message, text: str) -> str | None:
+    def _get_ai_query(self, msg: discord.Message, text: str) -> AiQuery | None:
         query = None
         trigger = re.match(rf"{re.escape(AI_TRIGGER.rstrip())}\s+", text, re.I)
         if trigger:
@@ -839,7 +847,10 @@ class Tob(discord.Client):
                 resolved and isinstance(resolved, discord.Message) and resolved.author == self.user
             ):
                 return None
-        return query.strip()
+        query = query.strip()
+        no_context = bool(AI_NO_CONTEXT_REGEX.search(query))
+        query = AI_NO_CONTEXT_REGEX.sub("", query).strip()
+        return AiQuery(query, no_context) if query else None
 
     def _format_ai_author(self, author: Any, include_extra: bool = True) -> str:
         _, display_name, extra = self._get_ai_author_info(author)
@@ -951,7 +962,11 @@ class Tob(discord.Client):
             for context_msg in context[-AI_CONTEXT_MAX_MESSAGES:]
         ]
 
-    async def _get_ai_context(self, msg: discord.Message, ch_id: str) -> str:
+    async def _get_ai_context(
+        self, msg: discord.Message, ch_id: str, no_context: bool = False
+    ) -> str:
+        if no_context:
+            return ""
         self._prune_ai_context()
         context = [x for x in self.ai_message_context if x.channel_id == ch_id]
         if len(context) < AI_CONTEXT_MAX_MESSAGES:
