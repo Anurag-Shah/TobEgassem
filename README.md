@@ -17,7 +17,11 @@ Set `enable_ai` to `true` and fill in `openai_api_key` to enable AI replies. Tob
 
 ## Admin settings
 
-Users in the existing admin ID allowlist can send `<mention> key=value`, for example `@tob enable_ai=true` or `@tob probability=100`. Use an actual bot mention or the literal `@tob` prefix. One setting per message; keys are case-insensitive. Changes take effect immediately and persist to `config.json`. Commands only acknowledge success or failure and never return config values. The old `ai enable` / `ai disable` syntax is replaced by `enable_ai=true` / `enable_ai=false`.
+Users in the existing admin ID allowlist can read and update non-sensitive settings through Discord. Use an actual bot mention or the literal `@tob` prefix. Keys are case-insensitive.
+
+- `@tob config` lists all readable settings and their current values, including defaults.
+- `@tob config key` reads one setting, for example `@tob config enable_ai`.
+- `@tob config key=value` changes one setting, for example `@tob config enable_ai=true` or `@tob config probability=100`. Changes take effect immediately and persist to `config.json`.
 
 | Key | Values |
 | --- | --- |
@@ -29,7 +33,7 @@ Users in the existing admin ID allowlist can send `<mention> key=value`, for exa
 | `reply_to_invalid_command`, `clear_cache`, `log_color` | `true` or `false` |
 | `log_level` | Integer from 0 (off) to 5 (trace) |
 
-Tokens, API keys, the API endpoint, and admin IDs cannot be changed through Discord. Edit credentials and the endpoint in the file and restart the bot. Admin commands bypass AI processing, context storage, and message logging.
+Only the settings above can be read or changed through Discord. Tokens, API keys, the API endpoint, and admin IDs stay hidden. Edit credentials and the endpoint in the file and restart the bot. Admin commands bypass AI processing, context storage, and message logging.
 
 (For access to the running instance of the bot, please DM me on discord at `Sol_InvictusXLII#1306`).
 

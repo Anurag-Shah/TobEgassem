@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 import aiohttp
 import discord
 
-from config import CONFIG_PATH, load_config, parse_setting, save_config
+from config import CONFIG_PATH, EDITABLE_SETTINGS, load_config, parse_setting, save_config
 from utils.log import log
 from utils.utils import *
 from utils.font import fontify
@@ -1293,7 +1293,7 @@ harness_will_reverse_output: {str(harness_will_reverse_output).lower()}
     def _match_config_command(self, text: str) -> re.Match | None:
         mention = rf"<@!?{self.user.id}>" if self.user else r"(?!)"
         return re.match(
-            rf"^(?:{mention}|@tob)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=(.*)$",
+            rf"^(?:{mention}|@tob)\s+(?:config(?:\s+(.*))?|([a-zA-Z_][a-zA-Z0-9_]*\s*=.*))$",
             text,
             re.I | re.S,
         )
@@ -1304,8 +1304,27 @@ harness_will_reverse_output: {str(harness_will_reverse_output).lower()}
             return False
         if not self._is_admin(msg):
             return True
-        key, raw_value = match.groups()
-        key = key.lower()
+        command, legacy_assignment = match.groups()
+        if legacy_assignment is not None:
+            await msg.reply("Use @tob config key=value.", mention_author=False)
+            return True
+        key, separator, raw_value = (command or "").strip().partition("=")
+        key = key.strip().lower()
+        if not separator:
+            if key and key not in EDITABLE_SETTINGS:
+                await msg.reply("Invalid or non-readable setting.", mention_author=False)
+                return True
+            settings = {}
+            for name in ([key] if key else EDITABLE_SETTINGS):
+                if name == "log_level":
+                    settings[name] = log.log_level
+                elif name == "log_color":
+                    settings[name] = log.use_ansi_colors
+                else:
+                    settings[name] = getattr(self, name)
+            content = "\n".join(f"{name}={json.dumps(value)}" for name, value in settings.items())
+            await msg.reply(f"```\n{content}\n```", mention_author=False)
+            return True
         try:
             value = parse_setting(key, raw_value.strip())
             if key == "enable_ai" and value and not self.openai_api_key:

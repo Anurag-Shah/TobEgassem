@@ -481,7 +481,7 @@ def admin_message(content, author_id=302516756256391168):
     ],
 )
 def test_admin_settings_persist(configured_bot, setting, value, expected):
-    msg = admin_message(f"<@123> {setting}={value}")
+    msg = admin_message(f"<@123> config {setting}={value}")
     asyncio.run(configured_bot.on_message(msg))
     config = load_config(configured_bot.config_path)
     assert config[setting] == expected
@@ -525,7 +525,7 @@ def test_admin_settings_persist(configured_bot, setting, value, expected):
 )
 def test_admin_invalid_settings_do_not_write(configured_bot, assignment, capsys):
     before = configured_bot.config_path.read_bytes()
-    msg = admin_message(f"<@!123> {assignment}")
+    msg = admin_message(f"<@!123> config {assignment}")
     asyncio.run(configured_bot.on_message(msg))
     assert configured_bot.config_path.read_bytes() == before
     msg.reply.assert_awaited_once_with("Invalid or non-editable setting.", mention_author=False)
@@ -535,7 +535,7 @@ def test_admin_invalid_settings_do_not_write(configured_bot, assignment, capsys)
 
 def test_non_admin_cannot_change_config(configured_bot):
     before = configured_bot.config_path.read_bytes()
-    msg = admin_message("@tob enable_ai=true", author_id=1)
+    msg = admin_message("@tob config enable_ai=true", author_id=1)
     asyncio.run(configured_bot.on_message(msg))
     assert not configured_bot.enable_ai
     assert configured_bot.config_path.read_bytes() == before
@@ -544,7 +544,7 @@ def test_non_admin_cannot_change_config(configured_bot):
 
 def test_admin_cannot_enable_ai_without_key(configured_bot):
     configured_bot.openai_api_key = None
-    msg = admin_message("@tob enable_ai=true")
+    msg = admin_message("@tob config enable_ai=true")
     asyncio.run(configured_bot.on_message(msg))
     assert not configured_bot.enable_ai
     assert "enable_ai" not in load_config(configured_bot.config_path)
@@ -557,7 +557,7 @@ def test_config_write_failure_preserves_state(configured_bot, monkeypatch):
         raise OSError("cannot replace")
 
     monkeypatch.setattr(os, "replace", fail_replace)
-    msg = admin_message("@tob enable_ai=true")
+    msg = admin_message("@tob config enable_ai=true")
     asyncio.run(configured_bot.on_message(msg))
     assert not configured_bot.enable_ai
     assert configured_bot.config_path.read_bytes() == before
@@ -567,7 +567,7 @@ def test_config_write_failure_preserves_state(configured_bot, monkeypatch):
 
 def test_config_commands_excluded_from_history(configured_bot):
     async def history(**kwargs):
-        yield SimpleNamespace(id=1, content="<@123> openai_api_key=secret")
+        yield SimpleNamespace(id=1, content="<@123> config openai_api_key=secret")
 
     msg = SimpleNamespace(channel=SimpleNamespace(history=history))
     assert asyncio.run(configured_bot._fetch_ai_context(msg, "1", [])) == []
@@ -577,7 +577,7 @@ def test_edit_into_config_command_removes_context(configured_bot):
     configured_bot.ai_message_context = [
         AiContextMessage(1.0, "channel", 1, "author", "author", "", "old")
     ]
-    after = SimpleNamespace(id=1, content="@tob openai_api_key=secret")
+    after = SimpleNamespace(id=1, content="@tob config openai_api_key=secret")
     asyncio.run(configured_bot.on_message_edit(None, after))
     assert configured_bot.ai_message_context == []
 
@@ -588,3 +588,67 @@ def test_invalid_json_config_is_rejected(tmp_path, contents):
     path.write_text(contents)
     with pytest.raises(ValueError):
         load_config(path)
+
+
+@pytest.mark.parametrize("prefix", ["@tob", "<@123>", "<@!123>"])
+def test_admin_reads_current_config(configured_bot, prefix):
+    before = configured_bot.config_path.read_bytes()
+    msg = admin_message(f"{prefix} config ENABLE_AI")
+    asyncio.run(configured_bot.on_message(msg))
+    msg.reply.assert_awaited_once_with("```\nenable_ai=false\n```", mention_author=False)
+    update = admin_message(f"{prefix} config enable_ai=true")
+    asyncio.run(configured_bot.on_message(update))
+    msg.reply.reset_mock()
+    asyncio.run(configured_bot.on_message(msg))
+    msg.reply.assert_awaited_once_with("```\nenable_ai=true\n```", mention_author=False)
+    assert configured_bot.config_path.read_bytes() != before
+    assert configured_bot.ai_message_context == []
+
+
+def test_admin_lists_effective_config_without_secrets(configured_bot):
+    before = configured_bot.config_path.read_bytes()
+    msg = admin_message("@tob config   ")
+    asyncio.run(configured_bot.on_message(msg))
+    msg.reply.assert_awaited_once_with(
+        '```\nenable_ai=false\nopenai_model="gpt-4o-mini"\n'
+        'openai_reasoning_effort="low"\nopenai_web_search=false\n'
+        'probability=69\ntwitter_replacement="vxtwitter.com"\n'
+        "reply_to_invalid_command=false\nclear_cache=false\nlog_level=1\nlog_color=false\n```",
+        mention_author=False,
+    )
+    assert configured_bot.config_path.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "discord_bot_token",
+        "twitter_tokens",
+        "openai_api_key",
+        "openai_base_url",
+        "__dict__",
+        "unknown",
+    ],
+)
+def test_admin_cannot_read_private_settings(configured_bot, key):
+    msg = admin_message(f"@tob config {key}")
+    asyncio.run(configured_bot.on_message(msg))
+    msg.reply.assert_awaited_once_with("Invalid or non-readable setting.", mention_author=False)
+
+
+@pytest.mark.parametrize("command", ["@tob config", "@tob config probability"])
+def test_non_admin_cannot_read_config(configured_bot, command):
+    msg = admin_message(command, author_id=1)
+    asyncio.run(configured_bot.on_message(msg))
+    msg.reply.assert_not_awaited()
+    assert configured_bot.ai_message_context == []
+
+
+def test_old_config_syntax_cannot_write(configured_bot):
+    before = configured_bot.config_path.read_bytes()
+    msg = admin_message("@tob enable_ai=true")
+    asyncio.run(configured_bot.on_message(msg))
+    msg.reply.assert_awaited_once_with("Use @tob config key=value.", mention_author=False)
+    assert configured_bot.config_path.read_bytes() == before
+    assert not configured_bot.enable_ai
+    assert configured_bot.ai_message_context == []
