@@ -1,4 +1,5 @@
 from os.path import exists
+from pathlib import Path
 import asyncio
 from dataclasses import dataclass
 from enum import Enum
@@ -15,6 +16,7 @@ from datetime import datetime, timezone
 import aiohttp
 import discord
 
+from config import CONFIG_PATH, load_config, parse_setting, save_config
 from utils.log import log
 from utils.utils import *
 from utils.font import fontify
@@ -210,11 +212,13 @@ class Tob(discord.Client):
         openai_model: str = "gpt-4o-mini",
         openai_reasoning_effort: str = "low",
         openai_web_search: bool = False,
+        config_path: Path = CONFIG_PATH,
     ) -> None:
         intents = discord.Intents().default()
         intents.message_content = True
         super().__init__(intents=intents)
 
+        self.config_path = config_path
         self.start_time = timer()
         self.api = get_tweepy_api_from_string(twitter_tokens)
         log.set_log_level(log_level)
@@ -256,7 +260,7 @@ class Tob(discord.Client):
         log.info(f"Logged in as: {self.user}", "on_ready")
 
     async def on_message_edit(self, before: discord.Message, after: discord.Message) -> None:
-        if not after.content:
+        if not after.content or self._match_config_command(after.content):
             self._remove_ai_context_message(after.id)
             return
         self._update_ai_context_message(after, after.content)
@@ -277,34 +281,21 @@ class Tob(discord.Client):
         text: str = msg.content
         text_lower = text.lower()
         ch_id = str(msg.channel.id) if isinstance(msg.channel, object) else ""
-        g_id = str(msg.guild.id) if isinstance(msg.guild, object) else ""
+        g_id = str(msg.guild.id) if msg.guild else ""
 
-        log.trace(format_msg_full(msg), "on_message")
         if not self.test and msg.author == self.user:
             self._record_ai_context(msg, text, ch_id)
             return
 
         self.active_messages += 1
         try:
+            if await self._handle_config_command(msg, text):
+                return
+
+            log.trace(format_msg_full(msg), "on_message")
             # AI chat
             if ai_query := self._get_ai_query(msg, text):
                 query = ai_query.text
-                if query.lower() in ("ai enable", "ai disable"):
-                    if not self._is_admin(msg):
-                        log.debug("Ignoring AI command from non-admin", "on_message::ai")
-                        return
-                    if query.lower() == "ai enable" and not self.openai_api_key:
-                        log.debug(
-                            "Ignoring AI enable command because OPENAI_API_KEY is not set",
-                            "on_message::ai",
-                        )
-                        return
-                    self.enable_ai = query.lower() == "ai enable"
-                    await msg.reply(
-                        f"ai {'enabled' if self.enable_ai else 'disabled'}", mention_author=True
-                    )
-                    return
-
                 if not self.enable_ai:
                     log.debug("Ignoring AI prompt because AI is disabled", "on_message::ai")
                     return
@@ -1017,7 +1008,11 @@ channel: {self._format_ai_channel(msg.channel)}
         fetched: list[AiContextMessage] = []
         try:
             async for old_msg in history(limit=AI_CONTEXT_MAX_MESSAGES, before=msg):
-                if old_msg.id in seen or not old_msg.content:
+                if (
+                    old_msg.id in seen
+                    or not old_msg.content
+                    or self._match_config_command(old_msg.content)
+                ):
                     continue
                 author_key, display_name, author_extra = self._get_ai_author_info(old_msg.author)
                 fetched.append(
@@ -1294,3 +1289,41 @@ harness_will_reverse_output: {str(harness_will_reverse_output).lower()}
             color=0x4400DD,
         )
         msg.reply(embed=embed, mention_author=False)
+
+    def _match_config_command(self, text: str) -> re.Match | None:
+        mention = rf"<@!?{self.user.id}>" if self.user else r"(?!)"
+        return re.match(
+            rf"^(?:{mention}|@tob)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=(.*)$",
+            text,
+            re.I | re.S,
+        )
+
+    async def _handle_config_command(self, msg: discord.Message, text: str) -> bool:
+        match = self._match_config_command(text)
+        if not match:
+            return False
+        if not self._is_admin(msg):
+            return True
+        key, raw_value = match.groups()
+        key = key.lower()
+        try:
+            value = parse_setting(key, raw_value.strip())
+            if key == "enable_ai" and value and not self.openai_api_key:
+                raise ValueError("AI API key is not configured.")
+            config = load_config(self.config_path)
+            config[key] = value
+            save_config(config, self.config_path)
+        except ValueError:
+            await msg.reply("Invalid or non-editable setting.", mention_author=False)
+            return True
+        except OSError:
+            await msg.reply("Could not save config.", mention_author=False)
+            return True
+        if key == "log_level":
+            log.set_log_level(value)
+        elif key == "log_color":
+            log.set_use_ansi_colors(value)
+        else:
+            setattr(self, key, value)
+        await msg.reply("Config updated.", mention_author=False)
+        return True

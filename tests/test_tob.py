@@ -1,7 +1,12 @@
 import asyncio
 import os
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
-from dotenv import load_dotenv
+import pytest
+
+from config import load_config, save_config
+
 import discord
 
 from src.tob import (
@@ -14,9 +19,7 @@ from src.tob import (
     detect_ai_provider,
 )
 from src.utils.utils import *
-from src.utils.log import *
-
-load_dotenv()
+from utils.log import log
 
 
 def get_message(content: str) -> discord.Message:
@@ -438,3 +441,150 @@ class TestTob:
         assert fullreverse("<@123a>") == ">a321@<"
         assert fullreverse("<@123&456>") == ">654&321@<"
         assert fullreverse("<:qwert:y>") == ">y:trewq:<"
+
+
+@pytest.fixture
+def configured_bot(tmp_path):
+    path = tmp_path / "config.json"
+    save_config(
+        {"discord_bot_token": "secret", "twitter_tokens": "a;b;c;d", "openai_api_key": "secret"},
+        path,
+    )
+    bot = Tob(twitter_tokens="a;b;c;d", openai_api_key="secret", test=True, config_path=path)
+    bot._connection.user = SimpleNamespace(id=123)
+    return bot
+
+
+def admin_message(content, author_id=302516756256391168):
+    return SimpleNamespace(
+        content=content,
+        author=SimpleNamespace(id=author_id),
+        channel=SimpleNamespace(id=1),
+        guild=None,
+        reply=AsyncMock(),
+    )
+
+
+@pytest.mark.parametrize(
+    "setting,value,expected",
+    [
+        ("enable_ai", "true", True),
+        ("openai_web_search", "false", False),
+        ("openai_model", "openai/gpt-5-nano", "openai/gpt-5-nano"),
+        ("openai_reasoning_effort", "high", "high"),
+        ("probability", "100", 100),
+        ("twitter_replacement", "vxtwitter.com", "vxtwitter.com"),
+        ("reply_to_invalid_command", "true", True),
+        ("clear_cache", "false", False),
+        ("log_level", "3", 3),
+        ("log_color", "false", False),
+    ],
+)
+def test_admin_settings_persist(configured_bot, setting, value, expected):
+    msg = admin_message(f"<@123> {setting}={value}")
+    asyncio.run(configured_bot.on_message(msg))
+    config = load_config(configured_bot.config_path)
+    assert config[setting] == expected
+    assert config["discord_bot_token"] == "secret"
+    assert config["openai_api_key"] == "secret"
+    assert configured_bot.config_path.stat().st_mode & 0o777 == 0o600
+    config.pop("discord_bot_token")
+    restarted = Tob(**config, test=True, config_path=configured_bot.config_path)
+    if setting == "log_level":
+        assert log.log_level == expected
+    elif setting == "log_color":
+        assert log.use_ansi_colors == expected
+    else:
+        assert getattr(configured_bot, setting) == expected
+        assert getattr(restarted, setting) == expected
+    msg.reply.assert_awaited_once_with("Config updated.", mention_author=False)
+    assert configured_bot.ai_message_context == []
+
+
+@pytest.mark.parametrize(
+    "assignment",
+    [
+        "discord_bot_token=secret",
+        "twitter_tokens=secret",
+        "openai_api_key=secret",
+        "openai_base_url=https://evil.example",
+        "admin_user_ids=1",
+        "test=true",
+        "unknown=value",
+        "probability=0",
+        "probability=-1",
+        "probability=1.5",
+        "enable_ai=yes",
+        "enable_ai=",
+        "log_level=6",
+        "openai_model=",
+        "openai_reasoning_effort=wrong",
+        "twitter_replacement=https://example.com",
+        "enable_ai=true probability=10",
+    ],
+)
+def test_admin_invalid_settings_do_not_write(configured_bot, assignment, capsys):
+    before = configured_bot.config_path.read_bytes()
+    msg = admin_message(f"<@!123> {assignment}")
+    asyncio.run(configured_bot.on_message(msg))
+    assert configured_bot.config_path.read_bytes() == before
+    msg.reply.assert_awaited_once_with("Invalid or non-editable setting.", mention_author=False)
+    assert configured_bot.ai_message_context == []
+    assert assignment not in capsys.readouterr().out
+
+
+def test_non_admin_cannot_change_config(configured_bot):
+    before = configured_bot.config_path.read_bytes()
+    msg = admin_message("@tob enable_ai=true", author_id=1)
+    asyncio.run(configured_bot.on_message(msg))
+    assert not configured_bot.enable_ai
+    assert configured_bot.config_path.read_bytes() == before
+    msg.reply.assert_not_awaited()
+
+
+def test_admin_cannot_enable_ai_without_key(configured_bot):
+    configured_bot.openai_api_key = None
+    msg = admin_message("@tob enable_ai=true")
+    asyncio.run(configured_bot.on_message(msg))
+    assert not configured_bot.enable_ai
+    assert "enable_ai" not in load_config(configured_bot.config_path)
+
+
+def test_config_write_failure_preserves_state(configured_bot, monkeypatch):
+    before = configured_bot.config_path.read_bytes()
+
+    def fail_replace(*args):
+        raise OSError("cannot replace")
+
+    monkeypatch.setattr(os, "replace", fail_replace)
+    msg = admin_message("@tob enable_ai=true")
+    asyncio.run(configured_bot.on_message(msg))
+    assert not configured_bot.enable_ai
+    assert configured_bot.config_path.read_bytes() == before
+    assert list(configured_bot.config_path.parent.glob(".config-*.json")) == []
+    msg.reply.assert_awaited_once_with("Could not save config.", mention_author=False)
+
+
+def test_config_commands_excluded_from_history(configured_bot):
+    async def history(**kwargs):
+        yield SimpleNamespace(id=1, content="<@123> openai_api_key=secret")
+
+    msg = SimpleNamespace(channel=SimpleNamespace(history=history))
+    assert asyncio.run(configured_bot._fetch_ai_context(msg, "1", [])) == []
+
+
+def test_edit_into_config_command_removes_context(configured_bot):
+    configured_bot.ai_message_context = [
+        AiContextMessage(1.0, "channel", 1, "author", "author", "", "old")
+    ]
+    after = SimpleNamespace(id=1, content="@tob openai_api_key=secret")
+    asyncio.run(configured_bot.on_message_edit(None, after))
+    assert configured_bot.ai_message_context == []
+
+
+@pytest.mark.parametrize("contents", ["[]", "{", '{"enable_ai": "false"}'])
+def test_invalid_json_config_is_rejected(tmp_path, contents):
+    path = tmp_path / "config.json"
+    path.write_text(contents)
+    with pytest.raises(ValueError):
+        load_config(path)

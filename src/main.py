@@ -1,33 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import os
-
-from dotenv import load_dotenv
-
+from config import load_config
 from tob import Tob
-from utils.utils import env, env_arg, to_bool
-from typing import Any
 
 
 def main():
-    load_dotenv()
-
-    bot_token = env("DISCORD_BOT_TOKEN")
-    args: dict[str, Any] = {}
-    env_arg(args, "TWITTER_TOKENS", "twitter_tokens")
-    env_arg(args, "LOG_LEVEL", "log_level", default=1)
-    env_arg(args, "REPLY_TO_INVALID_COMMAND", "reply_to_invalid_command", default=False)
-    env_arg(args, "LOG_COLOR", "log_color", default=False)
-    env_arg(args, "CLEAR_CACHE", "clear_cache", default=False)
-    args["enable_ai"] = to_bool(os.getenv("ENABLE_AI", False))
-    args["openai_api_key"] = os.getenv("OPENAI_API_KEY")
-    env_arg(args, "OPENAI_BASE_URL", "openai_base_url", default="https://api.openai.com/v1")
-    env_arg(args, "OPENAI_MODEL", "openai_model", default="gpt-4o-mini")
-    env_arg(args, "OPENAI_REASONING_EFFORT", "openai_reasoning_effort", default="low")
-    args["openai_web_search"] = to_bool(os.getenv("OPENAI_WEB_SEARCH", False))
-
-    tob = Tob(**args)
+    config = load_config()
+    bot_token = config.pop("discord_bot_token")
+    tob = Tob(**config)
     tob.run(bot_token)
 
 
