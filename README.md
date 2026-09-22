@@ -20,6 +20,7 @@ Set `enable_ai` to `true` and fill in `openai_api_key` to enable AI replies. Tob
 Users in the existing admin ID allowlist can read and update non-sensitive settings through Discord. Use an actual bot mention or the literal `@tob` prefix. Keys are case-insensitive.
 
 - `@tob config` lists all readable settings and their current values, including defaults.
+- `@tob config reload` reloads the settings below from disk without a restart. Missing settings revert to defaults; invalid files leave live settings unchanged.
 - `@tob config key` reads one setting, for example `@tob config enable_ai`.
 - `@tob config key=value` changes one setting, for example `@tob config enable_ai=true` or `@tob config probability=100`. Changes take effect immediately and persist to `config.json`.
 

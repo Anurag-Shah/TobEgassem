@@ -16,7 +16,14 @@ from datetime import datetime, timezone
 import aiohttp
 import discord
 
-from config import CONFIG_PATH, EDITABLE_SETTINGS, load_config, parse_setting, save_config
+from config import (
+    CONFIG_PATH,
+    DEFAULT_SETTINGS,
+    EDITABLE_SETTINGS,
+    load_config,
+    parse_setting,
+    save_config,
+)
 from utils.log import log
 from utils.utils import *
 from utils.font import fontify
@@ -199,19 +206,19 @@ class Tob(discord.Client):
     def __init__(
         self,
         twitter_tokens: str,
-        log_level: int = 1,
-        log_color: bool = False,
-        probability: int = 69,
-        twitter_replacement: str = "vxtwitter.com",
+        log_level: int = DEFAULT_SETTINGS["log_level"],
+        log_color: bool = DEFAULT_SETTINGS["log_color"],
+        probability: int = DEFAULT_SETTINGS["probability"],
+        twitter_replacement: str = DEFAULT_SETTINGS["twitter_replacement"],
         test: bool = False,
-        reply_to_invalid_command: bool = False,
-        clear_cache: bool = False,
-        enable_ai: bool = False,
+        reply_to_invalid_command: bool = DEFAULT_SETTINGS["reply_to_invalid_command"],
+        clear_cache: bool = DEFAULT_SETTINGS["clear_cache"],
+        enable_ai: bool = DEFAULT_SETTINGS["enable_ai"],
         openai_api_key: str | None = None,
         openai_base_url: str = "https://api.openai.com/v1",
-        openai_model: str = "gpt-4o-mini",
-        openai_reasoning_effort: str = "low",
-        openai_web_search: bool = False,
+        openai_model: str = DEFAULT_SETTINGS["openai_model"],
+        openai_reasoning_effort: str = DEFAULT_SETTINGS["openai_reasoning_effort"],
+        openai_web_search: bool = DEFAULT_SETTINGS["openai_web_search"],
         config_path: Path = CONFIG_PATH,
     ) -> None:
         intents = discord.Intents().default()
@@ -1310,6 +1317,23 @@ harness_will_reverse_output: {str(harness_will_reverse_output).lower()}
             return True
         key, separator, raw_value = (command or "").strip().partition("=")
         key = key.strip().lower()
+        if not separator and key == "reload":
+            try:
+                config = load_config(self.config_path)
+                settings = {
+                    name: config.get(name, default) for name, default in DEFAULT_SETTINGS.items()
+                }
+                if settings["enable_ai"] and not self.openai_api_key:
+                    raise ValueError("AI API key is not configured.")
+            except (ValueError, OSError):
+                await msg.reply(
+                    "Could not reload config; settings unchanged.", mention_author=False
+                )
+                return True
+            for name, value in settings.items():
+                self._apply_config_setting(name, value)
+            await msg.reply("Config reloaded.", mention_author=False)
+            return True
         if not separator:
             if key and key not in EDITABLE_SETTINGS:
                 await msg.reply("Invalid or non-readable setting.", mention_author=False)
@@ -1338,11 +1362,14 @@ harness_will_reverse_output: {str(harness_will_reverse_output).lower()}
         except OSError:
             await msg.reply("Could not save config.", mention_author=False)
             return True
+        self._apply_config_setting(key, value)
+        await msg.reply("Config updated.", mention_author=False)
+        return True
+
+    def _apply_config_setting(self, key: str, value: Any) -> None:
         if key == "log_level":
             log.set_log_level(value)
         elif key == "log_color":
             log.set_use_ansi_colors(value)
         else:
             setattr(self, key, value)
-        await msg.reply("Config updated.", mention_author=False)
-        return True

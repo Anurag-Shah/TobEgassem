@@ -652,3 +652,59 @@ def test_old_config_syntax_cannot_write(configured_bot):
     assert configured_bot.config_path.read_bytes() == before
     assert not configured_bot.enable_ai
     assert configured_bot.ai_message_context == []
+
+
+def test_admin_reload_applies_disk_settings_and_defaults(configured_bot):
+    configured_bot.probability = 100
+    config = load_config(configured_bot.config_path)
+    config.update(openai_model="openai/gpt-6-luna", enable_ai=True, log_level=4, log_color=True)
+    config["openai_api_key"] = "file-only-secret"
+    save_config(config, configured_bot.config_path)
+    before = configured_bot.config_path.read_bytes()
+    msg = admin_message("@tob config reload")
+    asyncio.run(configured_bot.on_message(msg))
+    assert configured_bot.openai_model == "openai/gpt-6-luna"
+    assert configured_bot.enable_ai
+    assert configured_bot.probability == 69
+    assert log.log_level == 4
+    assert log.use_ansi_colors
+    assert configured_bot.openai_api_key == "secret"
+    assert configured_bot.config_path.read_bytes() == before
+    assert configured_bot.ai_message_context == []
+    msg.reply.assert_awaited_once_with("Config reloaded.", mention_author=False)
+
+
+@pytest.mark.parametrize("failure", ["missing", "json", "setting", "unknown", "api_key"])
+def test_reload_failure_preserves_live_settings(configured_bot, failure):
+    config = load_config(configured_bot.config_path)
+    config["probability"] = 100
+    if failure == "setting":
+        config["log_level"] = 6
+    elif failure == "unknown":
+        config["unexpected"] = True
+    elif failure == "api_key":
+        configured_bot.openai_api_key = None
+        config["enable_ai"] = True
+    save_config(config, configured_bot.config_path)
+    if failure == "missing":
+        configured_bot.config_path.unlink()
+    elif failure == "json":
+        configured_bot.config_path.write_text("{")
+    msg = admin_message("@tob config reload")
+    asyncio.run(configured_bot.on_message(msg))
+    assert configured_bot.probability == 69
+    assert not configured_bot.enable_ai
+    assert log.log_level == 1
+    msg.reply.assert_awaited_once_with(
+        "Could not reload config; settings unchanged.", mention_author=False
+    )
+
+
+def test_non_admin_cannot_reload_config(configured_bot):
+    config = load_config(configured_bot.config_path)
+    config["probability"] = 100
+    save_config(config, configured_bot.config_path)
+    msg = admin_message("@tob config reload", author_id=1)
+    asyncio.run(configured_bot.on_message(msg))
+    assert configured_bot.probability == 69
+    msg.reply.assert_not_awaited()

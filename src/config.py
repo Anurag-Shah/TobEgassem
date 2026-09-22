@@ -7,19 +7,20 @@ from typing import Any
 
 CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.json"
 
-# Only these settings can be changed through Discord.
-EDITABLE_SETTINGS = {
-    "enable_ai": bool,
-    "openai_model": str,
-    "openai_reasoning_effort": str,
-    "openai_web_search": bool,
-    "probability": int,
-    "twitter_replacement": str,
-    "reply_to_invalid_command": bool,
-    "clear_cache": bool,
-    "log_level": int,
-    "log_color": bool,
+# Only these settings can be read or changed through Discord.
+DEFAULT_SETTINGS = {
+    "enable_ai": False,
+    "openai_model": "gpt-4o-mini",
+    "openai_reasoning_effort": "low",
+    "openai_web_search": False,
+    "probability": 69,
+    "twitter_replacement": "vxtwitter.com",
+    "reply_to_invalid_command": False,
+    "clear_cache": False,
+    "log_level": 1,
+    "log_color": False,
 }
+EDITABLE_SETTINGS = {key: type(value) for key, value in DEFAULT_SETTINGS.items()}
 
 
 def validate_setting(key: str, value: Any) -> Any:
